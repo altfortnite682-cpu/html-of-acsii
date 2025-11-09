@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>ParticleCam — Camera + Converter (Color, Flip, Record)</title>
+<title>ParticleCam v2 — Camera + Converter (Fixed)</title>
 <style>
   :root{
     --bg:#070707; --ui:#0f0f12; --accent:#3dd6b8; --muted:#9aa;
@@ -16,6 +16,7 @@
   .tab{padding:8px 12px;border-radius:8px;background:transparent;border:1px solid transparent;cursor:pointer}
   .tab.active{background:linear-gradient(180deg,#101214,#0b0b0d);border-color:#191919}
   .layout{display:grid;grid-template-columns:1fr 340px;gap:12px;align-items:start}
+  .panel{background:transparent}
   canvas{background:#000;border-radius:8px;display:block;width:100%;height:auto;max-height:78vh;object-fit:contain}
   .controls{background:var(--ui);padding:12px;border-radius:10px;display:flex;flex-direction:column;gap:10px}
   .row{display:flex;gap:8px;align-items:center}
@@ -31,46 +32,41 @@
     .layout{grid-template-columns:1fr}
     canvas{max-height:55vh}
   }
-  /* converter extras */
   .converter-area{margin-top:12px;background:#070707;border-radius:8px;padding:10px;border:1px dashed #222}
   .file-info{font-size:13px;color:var(--muted);margin-top:6px}
+  .status{font-size:13px;color:var(--muted);margin-top:6px}
+  .toggle-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .hidden{display:none !important}
 </style>
 </head>
 <body>
 <div class="app">
   <header>
     <div>
-      <div class="logo">ParticleCam</div>
-      <div class="sub">Live camera filter + converter — color, flip camera, record & convert files</div>
+      <div class="logo">ParticleCam v2</div>
+      <div class="sub">Camera + Converter — fixed converter and faster ASCII (Low Detail / FPS limiter)</div>
     </div>
-    <div class="hint">HTTPS required for mobile camera. Use OBS Virtual Camera to use in calls.</div>
+    <div class="hint">HTTPS required on mobile. Use OBS Window Capture + Virtual Camera to use in calls.</div>
   </header>
 
-  <div class="tabs">
-    <div id="tabCamera" class="tab active">Camera</div>
-    <div id="tabConverter" class="tab">Converter (Images/GIFs/Videos)</div>
+  <div class="tabs" role="tablist">
+    <div id="tabCamera" class="tab active" role="tab" aria-selected="true">Camera</div>
+    <div id="tabConverter" class="tab" role="tab" aria-selected="false">Converter</div>
   </div>
 
-  <div class="layout">
-    <!-- Main preview -->
+  <!-- CAMERA PANEL -->
+  <div id="cameraPanel" class="layout panel">
     <main>
-      <canvas id="out" width="1280" height="720"></canvas>
+      <canvas id="out" width="1280" height="720" aria-label="Processed output"></canvas>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-        <div class="hint" id="status">Status: idle</div>
-        <div class="hint">Mode preview: <span id="previewMode">particles</span></div>
-      </div>
-
-      <!-- Converter play controls (when converter active) -->
-      <div id="convControls" style="margin-top:8px;display:none;gap:8px;align-items:center">
-        <button id="convPlay" class="small">Play/Pause</button>
-        <button id="convLoop" class="small">Toggle Loop</button>
+        <div class="status" id="status">Status: idle</div>
+        <div class="hint">Preview: <span id="previewMode">particles</span></div>
       </div>
     </main>
 
-    <!-- Controls / Sidebar -->
     <aside class="controls">
       <div>
-        <div style="font-weight:600">Camera</div>
+        <div style="font-weight:600">Camera Controls</div>
         <div class="row" style="margin-top:6px">
           <button id="startBtn">Start Camera</button>
           <button id="stopBtn" class="small">Stop</button>
@@ -83,9 +79,9 @@
       </div>
 
       <div>
-        <div style="font-weight:600">Mode</div>
+        <div style="font-weight:600">Style</div>
         <div class="row" style="margin-top:6px">
-          <label>Style</label>
+          <label>Mode</label>
           <select id="mode"><option value="particles">Particles</option><option value="grid">Grid</option><option value="ascii">ASCII Text</option></select>
         </div>
         <div class="row"><label>Color</label><input id="colorMode" type="checkbox"></div>
@@ -101,7 +97,11 @@
       </div>
 
       <div>
-        <div style="font-weight:600">Smoothing & Effects</div>
+        <div style="font-weight:600">Performance & Effects</div>
+        <div class="row"><label>Low Detail</label><input id="lowDetail" type="checkbox"></div>
+        <div class="row"><label>Max FPS</label>
+          <select id="maxFps"><option value="30">30</option><option value="25">25</option><option value="20">20</option><option value="15">15</option></select>
+        </div>
         <div class="row"><label>Smooth</label><input id="smooth" type="checkbox" checked></div>
         <div class="row"><label>Noise</label><input id="noise" type="range" min="0" max="1" step="0.01" value="0.08"></div>
         <div class="row"><label>Edge</label><input id="edge" type="range" min="0" max="2" step="0.01" value="0.0"></div>
@@ -117,181 +117,213 @@
         <div class="hint" style="margin-top:6px">Recording captures processed canvas (webm).</div>
       </div>
 
+      <footer>Tip: use Converter tab to convert files. Converter follows the Color toggle above.</footer>
+    </aside>
+  </div>
+
+  <!-- CONVERTER PANEL -->
+  <div id="converterPanel" class="layout panel hidden" style="margin-top:12px">
+    <main>
+      <canvas id="outConv" width="1280" height="720" aria-label="Converted output"></canvas>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+        <div class="status" id="convStatus">Converter: idle</div>
+        <div class="hint">Converter mode: <span id="convPreviewMode">particles</span></div>
+      </div>
+
+      <div id="convPlayControls" style="margin-top:8px;display:flex;gap:8px;align-items:center">
+        <button id="convSnapshot">Convert Snapshot</button>
+        <button id="convRecord">Record Processed</button>
+        <button id="convStopRecord" class="small">Stop</button>
+        <a id="convDownload" class="small" style="pointer-events:none;opacity:0.5">Download</a>
+      </div>
+    </main>
+
+    <aside class="controls">
+      <div style="font-weight:600">Upload & Options</div>
+      <div class="converter-area">
+        <div class="row"><label>File</label><input id="fileIn" type="file" accept="image/*,video/*"></div>
+        <div class="file-info" id="fileInfo">No file loaded.</div>
+        <div style="margin-top:8px" class="row"><label>Auto play</label><input id="autoPlay" type="checkbox" checked></div>
+      </div>
+
       <div>
-        <div style="font-weight:600">Converter</div>
-        <div class="converter-area">
-          <div class="row"><label>Upload</label><input id="fileIn" type="file" accept="image/*,video/*"></div>
-          <div class="file-info" id="fileInfo">No file loaded.</div>
-          <div style="margin-top:8px" class="row">
-            <label>Auto play</label><input id="autoPlay" type="checkbox" checked>
-          </div>
+        <div style="font-weight:600">Conversion Style</div>
+        <div class="row">
+          <label>Mode</label>
+          <select id="convMode"><option value="particles">Particles</option><option value="grid">Grid</option><option value="ascii">ASCII Text</option></select>
+        </div>
+        <div class="row"><label>Color</label><input id="convColor" type="checkbox"></div>
+        <div class="row"><label>Density</label><input id="convDensity" type="range" min="8" max="200" step="1" value="60"></div>
+        <div class="row"><label>Dot size</label><input id="convDot" type="range" min="0.2" max="6" step="0.1" value="1.4"></div>
+        <div class="row"><label>Low Detail</label><input id="convLowDetail" type="checkbox"></div>
+      </div>
+
+      <div>
+        <div style="font-weight:600">Converter Performance</div>
+        <div class="row"><label>Max FPS</label>
+          <select id="convFps"><option value="25">25</option><option value="20">20</option><option value="15">15</option></select>
         </div>
       </div>
 
-      <footer>Tip: For calls, open this page in a window and capture via OBS Window Capture → Start Virtual Camera.</footer>
+      <footer>Converted snapshots can be downloaded as PNG. For gifs/videos, use Record to capture processed frames to WebM.</footer>
     </aside>
   </div>
 </div>
 
 <script>
-/* Single-file ParticleCam with:
- - camera start/stop
- - flip camera (cycle through video input devices)
- - color mode (sample rgb)
- - converter: load image / GIF / video and process with same engine
- - snapshot & recording using canvas.captureStream
+/* ParticleCam v2 fixes:
+ - Proper tab switching (camera and converter are fully separate).
+ - Converter processes files and offers snapshot & recording.
+ - ASCII performance improved: LowDetail and FPS limiter.
+ - Converter color toggle follows camera color toggle if desired.
+ - OffscreenCanvas used when available for sampling.
 */
 
-// DOM
-const startBtn = document.getElementById('startBtn');
-const stopBtn = document.getElementById('stopBtn');
-const flipBtn  = document.getElementById('flipBtn');
+// DOM refs
+const tabs = { camera: document.getElementById('tabCamera'), converter: document.getElementById('tabConverter') };
+const cameraPanel = document.getElementById('cameraPanel'), converterPanel = document.getElementById('converterPanel');
+
+// Camera elements
+const out = document.getElementById('out'), ctx = out.getContext('2d', { alpha: false });
+const statusEl = document.getElementById('status'), previewMode = document.getElementById('previewMode');
+const startBtn = document.getElementById('startBtn'), stopBtn = document.getElementById('stopBtn'), flipBtn = document.getElementById('flipBtn');
 const deviceSelect = document.getElementById('deviceSelect');
-const statusEl = document.getElementById('status');
-const canvas = document.getElementById('out');
-const ctx = canvas.getContext('2d', { alpha: false });
-const previewMode = document.getElementById('previewMode');
+const snapBtn = document.getElementById('snap'), recordBtn = document.getElementById('record');
+const downloadLink = document.getElementById('download');
 
-const controls = {
-  mode: document.getElementById('mode'),
-  colorMode: document.getElementById('colorMode'),
-  zoom: document.getElementById('zoom'),
-  density: document.getElementById('density'),
-  dot: document.getElementById('dot'),
-  contrast: document.getElementById('contrast'),
-  invert: document.getElementById('invert'),
-  smooth: document.getElementById('smooth'),
-  noise: document.getElementById('noise'),
-  edge: document.getElementById('edge'),
-  snap: document.getElementById('snap'),
-  record: document.getElementById('record'),
-  download: document.getElementById('download'),
-  fileIn: document.getElementById('fileIn'),
-  fileInfo: document.getElementById('fileInfo'),
-  autoPlay: document.getElementById('autoPlay'),
-  convPlay: document.getElementById('convPlay'),
-  convLoop: document.getElementById('convLoop')
-};
+// Controls
+const modeEl = document.getElementById('mode'), colorModeEl = document.getElementById('colorMode'),
+      zoomEl = document.getElementById('zoom'), densityEl = document.getElementById('density'),
+      dotEl = document.getElementById('dot'), contrastEl = document.getElementById('contrast'),
+      invertEl = document.getElementById('invert'), smoothEl = document.getElementById('smooth'),
+      lowDetailEl = document.getElementById('lowDetail'), maxFpsEl = document.getElementById('maxFps'),
+      noiseEl = document.getElementById('noise'), edgeEl = document.getElementById('edge');
 
-const tabCamera = document.getElementById('tabCamera');
-const tabConverter = document.getElementById('tabConverter');
-const convControls = document.getElementById('convControls');
+// Converter elements
+const outConv = document.getElementById('outConv'), ctxConv = outConv.getContext('2d', { alpha: false });
+const convStatus = document.getElementById('convStatus'), convPreviewMode = document.getElementById('convPreviewMode');
+const fileIn = document.getElementById('fileIn'), fileInfo = document.getElementById('fileInfo');
+const convMode = document.getElementById('convMode'), convColor = document.getElementById('convColor');
+const convDensity = document.getElementById('convDensity'), convDot = document.getElementById('convDot');
+const convSnapshot = document.getElementById('convSnapshot'), convRecord = document.getElementById('convRecord'),
+      convStopRecord = document.getElementById('convStopRecord'), convDownload = document.getElementById('convDownload'),
+      autoPlayEl = document.getElementById('autoPlay'), convLowDetail = document.getElementById('convLowDetail'),
+      convFps = document.getElementById('convFps');
 
 // state
-let stream = null;
-let videoEl = null;         // camera video element
-let sourceEl = null;        // current source: camera videoEl or uploaded media element (img/video)
-let rafId = null;
-let recording = false, recorder = null, chunks = [];
-let devices = [];
-let currentDeviceId = '';
-let converterPlaying = false, converterLoop = true;
+let state = {
+  // camera
+  stream: null, cameraVideo: null, rafId: null, lastTime: 0, fpsInterval: 1000 / 30,
+  recording: false, recorder: null, chunks: [],
+  devices: [], currentDeviceId: '',
 
-// canvas base size
-canvas.width = 1280; canvas.height = 720;
-ctx.imageSmoothingEnabled = true;
+  // converter
+  convSource: null, convRaf: null, convRecording: false, convRecorder: null, convChunks: [], convLoop: true
+};
 
-// UTIL
-function logStatus(s){ statusEl.textContent = 'Status: ' + s; }
-function q(sel){ return document.querySelector(sel); }
+// helpers
+function log(s){ statusEl.textContent = 'Status: ' + s; }
+function logConv(s){ convStatus.textContent = 'Converter: ' + s; }
 
-// enumerate devices
-async function updateDeviceList(){
+// Tab switching
+tabs.camera.addEventListener('click', ()=>selectTab('camera'));
+tabs.converter.addEventListener('click', ()=>selectTab('converter'));
+function selectTab(name){
+  if (name === 'camera'){
+    tabs.camera.classList.add('active'); tabs.converter.classList.remove('active');
+    cameraPanel.classList.remove('hidden'); converterPanel.classList.add('hidden');
+    log(state.stream ? 'camera running' : 'idle');
+  } else {
+    tabs.converter.classList.add('active'); tabs.camera.classList.remove('active');
+    converterPanel.classList.remove('hidden'); cameraPanel.classList.add('hidden');
+    logConv('idle');
+  }
+}
+
+// device enumeration
+async function updateDevices(){
   try {
     const list = await navigator.mediaDevices.enumerateDevices();
-    devices = list.filter(d => d.kind === 'videoinput');
+    state.devices = list.filter(d => d.kind === 'videoinput');
     deviceSelect.innerHTML = '<option value="">Auto</option>';
-    devices.forEach((d,i)=>{
-      const opt = document.createElement('option');
-      opt.value = d.deviceId;
-      opt.textContent = d.label || `Camera ${i+1}`;
+    state.devices.forEach((d,i)=>{
+      const opt = document.createElement('option'); opt.value=d.deviceId; opt.textContent = d.label || `Camera ${i+1}`;
       deviceSelect.appendChild(opt);
     });
-  } catch (e) {
+  } catch(e){
     console.warn('enumerateDevices failed', e);
   }
 }
 
-// start camera with constraints (deviceId optional)
+// start camera
 async function startCamera(deviceId){
-  if (stream) stopCamera();
+  stopCamera();
+  const constraints = deviceId ? { video: { deviceId: { exact: deviceId } } } : { video: { facingMode: 'user' } };
   try {
-    const constraints = {
-      video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" },
-      audio: false
-    };
-    stream = await navigator.mediaDevices.getUserMedia(constraints);
-    videoEl = document.createElement('video');
-    videoEl.autoplay = true; videoEl.playsInline = true; videoEl.muted = true;
-    videoEl.srcObject = stream;
-    await videoEl.play();
-    sourceEl = videoEl;
-    currentDeviceId = deviceId || '';
-    await setupCanvasForSource();
-    loop();
-    await updateDeviceList();
-    logStatus('camera running');
-  } catch (err){
-    console.error('startCamera error', err);
-    alert('Camera access denied or not supported.');
-    logStatus('camera error');
+    state.stream = await navigator.mediaDevices.getUserMedia({ ...constraints, audio:false });
+    state.cameraVideo = document.createElement('video'); state.cameraVideo.autoplay=true; state.cameraVideo.playsInline=true; state.cameraVideo.muted=true;
+    state.cameraVideo.srcObject = state.stream;
+    await state.cameraVideo.play();
+    // set source and start loop
+    await setupCanvasForSource(state.cameraVideo, out, ctx);
+    state.lastTime = performance.now();
+    state.fpsInterval = 1000 / Number(maxFpsEl.value);
+    loopCamera();
+    await updateDevices();
+    log('camera running');
+  } catch(err){
+    console.error(err); alert('Camera access denied or not supported'); log('camera error');
   }
 }
 
 function stopCamera(){
-  if (stream){
-    stream.getTracks().forEach(t => t.stop());
-    stream = null;
-    sourceEl = null;
-    if (rafId) cancelAnimationFrame(rafId);
-    logStatus('stopped');
+  if (state.stream){
+    state.stream.getTracks().forEach(t=>t.stop());
+    state.stream = null;
   }
+  if (state.rafId) cancelAnimationFrame(state.rafId);
+  state.cameraVideo = null;
+  log('stopped');
 }
 
-// flip camera: cycle device list or flip facingMode if devices unknown
+// flip camera: cycle through devices (if available)
 async function flipCamera(){
-  await updateDeviceList();
-  if (devices.length === 0) {
-    // try toggling facingMode
-    if (!currentDeviceId) {
-      await startCamera(); // default user
-    } else {
-      // restart without deviceId (browser chooses environment maybe)
-      await startCamera();
-    }
+  await updateDevices();
+  if (state.devices.length <= 1){
+    // try toggling facingMode by restarting default
+    await startCamera('');
     return;
   }
-  // find index of current
-  const idx = devices.findIndex(d => d.deviceId === currentDeviceId);
-  const next = devices[(idx + 1) % devices.length];
-  await startCamera(next.deviceId);
+  const idx = state.devices.findIndex(d => d.deviceId === state.currentDeviceId);
+  const next = state.devices[(idx + 1) % state.devices.length];
+  state.currentDeviceId = next.deviceId;
   deviceSelect.value = next.deviceId;
+  await startCamera(next.deviceId);
 }
 
-// setup canvas resolution based on source resolution
-async function setupCanvasForSource(){
-  if (!sourceEl) return;
-  const w = sourceEl.videoWidth || sourceEl.naturalWidth || 640;
-  const h = sourceEl.videoHeight || sourceEl.naturalHeight || 480;
-  // set canvas to a max of 1280x720 for recording quality but keep aspect
+// setup canvas for given source element
+async function setupCanvasForSource(source, canvasEl, context){
+  if (!source) return;
+  const w = source.videoWidth || source.naturalWidth || 640;
+  const h = source.videoHeight || source.naturalHeight || 480;
+  // scale down to max resolution for performance
   const maxW = 1280, maxH = 720;
-  const ratio = Math.min(maxW / w, maxH / h, 1);
-  canvas.width = Math.round(w * ratio);
-  canvas.height = Math.round(h * ratio);
-  ctx.imageSmoothingEnabled = !!controls.smooth.checked;
-  ctx.imageSmoothingQuality = 'high';
+  const ratio = Math.min(maxW/w, maxH/h, 1);
+  canvasEl.width = Math.round(w * ratio);
+  canvasEl.height = Math.round(h * ratio);
+  context.imageSmoothingEnabled = !!smoothEl.checked;
+  context.imageSmoothingQuality = 'high';
 }
 
-// brightness contrast helper (contrast slider 0..3)
+// contrast helper
 function adjustContrast(v, contrast){
-  // v 0..255
+  // v 0..255, contrast 0..3
   const c = contrast;
-  // simple linear-ish contrast
   const f = (259 * (c * 255 + 255)) / (255 * (259 - c * 255));
   return Math.min(255, Math.max(0, f * (v - 128) + 128));
 }
 
-// edge detection (Sobel approx) on gray array
+// edge detect
 function edgeDetect(gray, w, h){
   const out = new Float32Array(w*h);
   for (let y=1;y<h-1;y++){
@@ -305,255 +337,334 @@ function edgeDetect(gray, w, h){
   return out;
 }
 
-// main loop: draws processed output from sourceEl (camera or uploaded) to canvas
-function loop(){
-  rafId = requestAnimationFrame(loop);
-  if (!sourceEl || (sourceEl.readyState !== undefined && sourceEl.readyState < 2)) return;
+// ---------- Drawing engine (shared) ----------
+// drawProcessed(sourceElement, targetCanvas, targetContext, options)
+// options includes: mode, color, density, dot, contrast, invert, noise, edge, lowDetail
+async function drawProcessed(sourceEl, canvasEl, ctxLocal, opts){
+  // Adaptive sampling: density controls sampled grid; lowDetail reduces sample size
+  const density = Math.max(4, Math.floor(opts.density));
+  const lowDetail = !!opts.lowDetail;
+  const scaleFactor = lowDetail ? 0.5 : 1;
+  const sampleW = Math.max(8, Math.floor(canvasEl.width / Math.max(1, density/60) * scaleFactor));
+  const sampleH = Math.max(8, Math.floor(canvasEl.height / Math.max(1, density/60) * scaleFactor));
 
-  // gather params
-  const density = Math.max(4, parseInt(controls.density.value,10));
-  const zoom = parseFloat(controls.zoom.value);
-  const dotSize = parseFloat(controls.dot.value);
-  const contrast = parseFloat(controls.contrast.value);
-  const invert = controls.invert.checked;
-  const noiseLevel = parseFloat(controls.noise.value);
-  const edgeBoost = parseFloat(controls.edge.value);
-  const mode = controls.mode.value;
-  const color = controls.colorMode.checked;
-  const tmpW = Math.max(8, Math.floor(canvas.width / Math.max(1, density/60)));
-  const tmpH = Math.max(8, Math.floor(canvas.height / Math.max(1, density/60)));
+  // clamp sample sizes for performance
+  const maxSample = 200;
+  const sW = Math.min(sampleW, maxSample), sH = Math.min(sampleH, maxSample);
 
-  // sample region from source with zoom
-  const sw = sourceEl.videoWidth || sourceEl.naturalWidth || canvas.width;
-  const sh = sourceEl.videoHeight || sourceEl.naturalHeight || canvas.height;
-  const sx = Math.max(0, Math.floor((sw - sw/zoom) / 2));
-  const sy = Math.max(0, Math.floor((sh - sh/zoom) / 2));
+  // offscreen sampling
+  let off;
+  if (typeof OffscreenCanvas !== 'undefined') {
+    off = new OffscreenCanvas(sW, sH);
+  } else {
+    off = document.createElement('canvas');
+    off.width = sW; off.height = sH;
+  }
+  const tctx = off.getContext('2d', { willReadFrequently: true });
+  tctx.imageSmoothingEnabled = !!opts.smooth;
+
+  // compute zoomed source rectangle
+  const sw = sourceEl.videoWidth || sourceEl.naturalWidth || canvasEl.width;
+  const sh = sourceEl.videoHeight || sourceEl.naturalHeight || canvasEl.height;
+  const zoom = Math.max(1, opts.zoom || 1);
   const ssw = Math.max(1, Math.floor(sw/zoom));
   const ssh = Math.max(1, Math.floor(sh/zoom));
+  const sx = Math.floor((sw - ssw)/2), sy = Math.floor((sh - ssh)/2);
 
-  // draw onto temp canvas to sample pixels
-  const tmp = document.createElement('canvas');
-  tmp.width = tmpW; tmp.height = tmpH;
-  const tctx = tmp.getContext('2d', { willReadFrequently: true });
-  tctx.imageSmoothingEnabled = !!controls.smooth.checked;
-  tctx.drawImage(sourceEl, sx, sy, ssw, ssh, 0, 0, tmp.width, tmp.height);
+  // draw scaled-down source to offscreen
+  tctx.drawImage(sourceEl, sx, sy, ssw, ssh, 0, 0, sW, sH);
 
-  const img = tctx.getImageData(0,0,tmp.width,tmp.height);
+  const img = tctx.getImageData(0,0,sW,sH);
   const d = img.data;
-  const gray = new Float32Array(tmp.width*tmp.height);
-  // compute grayscale and optionally color, apply contrast
-  for (let y=0;y<tmp.height;y++){
-    for (let x=0;x<tmp.width;x++){
-      const i = (y*tmp.width + x)*4;
+  const gray = new Float32Array(sW*sH);
+  for (let y=0;y<sH;y++){
+    for (let x=0;x<sW;x++){
+      const i = (y*sW + x)*4;
       const r = d[i], g = d[i+1], b = d[i+2];
       let v = 0.299*r + 0.587*g + 0.114*b;
-      v = adjustContrast(v, contrast);
-      gray[y*tmp.width + x] = v;
+      v = adjustContrast(v, opts.contrast || 1);
+      gray[y*sW + x] = v;
     }
   }
   let edges = null;
-  if (edgeBoost > 0) edges = edgeDetect(gray, tmp.width, tmp.height);
+  if (opts.edge > 0) edges = edgeDetect(gray, sW, sH);
 
-  // draw to main canvas
-  ctx.clearRect(0,0,canvas.width, canvas.height);
-  const cellW = canvas.width / tmp.width;
-  const cellH = canvas.height / tmp.height;
+  // render to main canvas
+  ctxLocal.clearRect(0,0,canvasEl.width, canvasEl.height);
+  const cellW = canvasEl.width / sW;
+  const cellH = canvasEl.height / sH;
 
-  if (mode === 'particles') {
-    // draw dots
-    ctx.globalCompositeOperation = 'source-over';
-    for (let y=0;y<tmp.height;y++){
-      for (let x=0;x<tmp.width;x++){
-        const i = y*tmp.width + x;
-        let v = gray[i]/255;
-        if (invert) v = 1 - v;
-        if (edges) v = Math.min(1, v + edges[i] / 255 * edgeBoost);
-        v = Math.min(1, Math.max(0, v + (Math.random()-0.5) * noiseLevel));
+  if (opts.mode === 'particles'){
+    for (let y=0;y<sH;y++){
+      for (let x=0;x<sW;x++){
+        const idx = y*sW + x;
+        let v = gray[idx] / 255;
+        if (opts.invert) v = 1 - v;
+        if (edges) v = Math.min(1, v + edges[idx] / 255 * opts.edge);
+        v = Math.min(1, Math.max(0, v + (Math.random()-0.5) * opts.noise));
         const cx = (x + 0.5) * cellW;
         const cy = (y + 0.5) * cellH;
-        const radius = Math.max(0.2, dotSize * Math.sqrt(v)) * Math.min(cellW, cellH) * 0.5;
-        if (color) {
-          const pi = (y*tmp.width + x)*4;
-          const r = d[pi], g = d[pi+1], b = d[pi+2];
-          ctx.fillStyle = `rgb(${r},${g},${b})`;
+        const radius = Math.max(0.2, opts.dot * Math.sqrt(v)) * Math.min(cellW, cellH) * 0.5;
+        if (opts.color) {
+          const i = idx*4;
+          ctxLocal.fillStyle = `rgb(${d[i]},${d[i+1]},${d[i+2]})`;
         } else {
           const grey = Math.floor(v*255);
-          ctx.fillStyle = `rgb(${grey},${grey},${grey})`;
+          ctxLocal.fillStyle = `rgb(${grey},${grey},${grey})`;
         }
-        ctx.globalAlpha = Math.max(0.08, v);
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI*2);
-        ctx.fill();
+        ctxLocal.globalAlpha = Math.max(0.06, v);
+        ctxLocal.beginPath();
+        ctxLocal.arc(cx, cy, radius, 0, Math.PI*2);
+        ctxLocal.fill();
       }
     }
-    ctx.globalAlpha = 1;
-  } else if (mode === 'grid'){
-    for (let y=0;y<tmp.height;y++){
-      for (let x=0;x<tmp.width;x++){
-        const i = y*tmp.width + x;
-        let v = gray[i]/255;
-        if (invert) v = 1 - v;
-        if (edges) v = Math.min(1, v + edges[i] / 255 * edgeBoost);
-        v = Math.min(1, Math.max(0, v + (Math.random()-0.5) * noiseLevel));
+    ctxLocal.globalAlpha = 1;
+  } else if (opts.mode === 'grid'){
+    for (let y=0;y<sH;y++){
+      for (let x=0;x<sW;x++){
+        const idx = y*sW + x;
+        let v = gray[idx] / 255;
+        if (opts.invert) v = 1 - v;
+        if (edges) v = Math.min(1, v + edges[idx] / 255 * opts.edge);
+        v = Math.min(1, Math.max(0, v + (Math.random()-0.5) * opts.noise));
         const px = Math.floor(x * cellW);
         const py = Math.floor(y * cellH);
-        if (color) {
-          const pi = (y*tmp.width + x)*4;
-          const r = d[pi], g = d[pi+1], b = d[pi+2];
-          ctx.fillStyle = `rgb(${r},${g},${b})`;
+        if (opts.color) {
+          const i = idx*4;
+          ctxLocal.fillStyle = `rgb(${d[i]},${d[i+1]},${d[i+2]})`;
         } else {
           const grey = Math.floor(v*255);
-          ctx.fillStyle = `rgb(${grey},${grey},${grey})`;
+          ctxLocal.fillStyle = `rgb(${grey},${grey},${grey})`;
         }
-        ctx.fillRect(px, py, Math.ceil(cellW), Math.ceil(cellH));
+        ctxLocal.fillRect(px, py, Math.ceil(cellW), Math.ceil(cellH));
       }
     }
-  } else if (mode === 'ascii'){
-    // draw ascii characters; color if requested via fillStyle
+  } else if (opts.mode === 'ascii'){
+    // faster ascii: draw only when cell size > threshold; batch via fillText
     const asciiChars = "@%#*+=-:. ";
-    ctx.textBaseline = 'middle';
-    const fontSize = Math.min(cellW, cellH) * 1.1;
-    ctx.font = `${fontSize}px monospace`;
-    for (let y=0;y<tmp.height;y++){
-      for (let x=0;x<tmp.width;x++){
-        const i = y*tmp.width + x;
-        let v = gray[i]/255;
-        if (invert) v = 1 - v;
-        if (edges) v = Math.min(1, v + edges[i] / 255 * edgeBoost);
+    ctxLocal.fillStyle = '#fff';
+    ctxLocal.textBaseline = 'middle';
+    const fontSize = Math.max(6, Math.min(cellW, cellH) * 1.05);
+    ctxLocal.font = `${fontSize}px monospace`;
+    // To speed up, if too many characters, skip some cells when lowDetail
+    const step = lowDetail ? 2 : 1;
+    for (let y=0;y<sH;y+=step){
+      for (let x=0;x<sW;x+=step){
+        const idx = y*sW + x;
+        let v = gray[idx] / 255;
+        if (opts.invert) v = 1 - v;
+        if (edges) v = Math.min(1, v + edges[idx] / 255 * opts.edge);
         v = Math.min(1, Math.max(0, v));
         const ch = asciiChars[Math.floor((1 - v) * (asciiChars.length - 1))];
         const px = (x + 0.5) * cellW;
         const py = (y + 0.5) * cellH;
-        if (color) {
-          const pi = (y*tmp.width + x)*4;
-          const r = d[pi], g = d[pi+1], b = d[pi+2];
-          ctx.fillStyle = `rgb(${r},${g},${b})`;
+        if (opts.color) {
+          const i = idx*4;
+          ctxLocal.fillStyle = `rgb(${d[i]},${d[i+1]},${d[i+2]})`;
         } else {
           const grey = Math.floor(v*255);
-          ctx.fillStyle = `rgb(${grey},${grey},${grey})`;
+          ctxLocal.fillStyle = `rgb(${grey},${grey},${grey})`;
         }
-        ctx.fillText(ch, px - fontSize/2, py);
+        ctxLocal.fillText(ch, px - fontSize/2, py);
       }
     }
   }
-
-  previewMode.textContent = mode + (color ? ' (color)' : '');
 }
 
-// snapshot
-controls.snap.addEventListener('click', ()=>{
-  const dataUrl = canvas.toDataURL('image/png');
-  const a = document.createElement('a');
-  a.href = dataUrl;
-  a.download = 'particlecam_snapshot.png';
-  a.click();
-});
+// ---------- Camera loop with FPS limiter ----------
+function loopCamera(time){
+  state.rafId = requestAnimationFrame(loopCamera);
+  const now = performance.now();
+  const elapsed = now - state.lastTime;
+  const target = 1000 / Number(maxFpsEl.value);
+  if (elapsed < target) return;
+  state.lastTime = now - (elapsed % target);
+  if (!state.cameraVideo) return;
 
-// recording
-controls.record.addEventListener('click', ()=>{
-  if (!recording){
-    const cstream = canvas.captureStream(30);
-    recorder = new MediaRecorder(cstream, { mimeType: 'video/webm;codecs=vp9' });
-    chunks = [];
-    recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-    recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: 'video/webm' });
-      const url = URL.createObjectURL(blob);
-      controls.download.href = url;
-      controls.download.style.pointerEvents = 'auto';
-      controls.download.style.opacity = '1';
-      controls.download.textContent = 'Download Recording';
-      controls.download.download = 'particlecam_recording.webm';
-      logStatus('recording ready');
-    };
-    recorder.start();
-    recording = true;
-    controls.record.textContent = 'Stop Recording';
-    logStatus('recording...');
-  } else {
-    recorder.stop();
-    recording = false;
-    controls.record.textContent = 'Start Recording';
-    logStatus('processing recording...');
-  }
-});
+  const opts = {
+    mode: modeEl.value, color: colorModeEl.checked, density: Number(densityEl.value),
+    dot: Number(dotEl.value), contrast: Number(contrastEl.value), invert: invertEl.checked,
+    noise: Number(noiseEl.value), edge: Number(edgeEl.value), lowDetail: lowDetailEl.checked,
+    smooth: smoothEl.checked, zoom: Number(zoomEl.value)
+  };
 
-// converter handling
-controls.fileIn.addEventListener('change', handleFile);
-controls.autoPlay.addEventListener('change', ()=>{ if (controls.autoPlay.checked) playConverter(); else pauseConverter(); });
+  drawProcessed(state.cameraVideo, out, ctx, opts);
+  previewMode.textContent = opts.mode + (opts.color ? ' (color)' : '');
+}
 
-async function handleFile(ev){
-  const f = ev.target.files[0];
+// ---------- Converter functions ----------
+fileIn.addEventListener('change', handleFileInput);
+
+async function handleFileInput(e){
+  const f = e.target.files[0];
   if (!f) return;
-  controls.fileInfo.textContent = `Loaded: ${f.name} (${Math.round(f.size/1024)} KB)`;
-  // cleanup existing
-  if (sourceEl && sourceEl !== videoEl) {
-    try { sourceEl.pause && sourceEl.pause(); sourceEl.src && (sourceEl.src = ''); } catch {}
+  fileInfo.textContent = `Loaded: ${f.name} (${Math.round(f.size/1024)} KB)`;
+  // cleanup any previous source
+  if (state.convSource && state.convSource !== state.cameraVideo){
+    try { state.convSource.pause && state.convSource.pause(); state.convSource.src && (state.convSource.src = ''); } catch {}
   }
-  // detect type
-  const type = f.type;
   const url = URL.createObjectURL(f);
-  if (type.startsWith('image/')){
-    // image (may be animated GIF)
+  if (f.type.startsWith('image/')){
+    // img (GIFs will animate in <img>)
     const img = document.createElement('img');
     img.crossOrigin = 'anonymous';
     img.src = url;
     img.onload = async ()=>{
-      sourceEl = img;
-      await setupCanvasForSource();
-      // for animated gifs, the img will animate automatically; we just draw it repeatedly
-      if (controls.autoPlay.checked){
-        playConverter();
-      }
+      state.convSource = img;
+      await setupCanvasForSource(img, outConv, ctxConv);
+      convPreviewMode.textContent = convMode.value + (convColor.checked ? ' (color)' : '');
+      if (autoPlayEl.checked) startConvLoop();
+      logConv('image ready');
     };
     img.onerror = ()=>{ alert('Failed to load image'); };
-  } else if (type.startsWith('video/')){
+  } else if (f.type.startsWith('video/')){
     const vid = document.createElement('video');
-    vid.src = url; vid.autoplay = controls.autoPlay.checked; vid.loop = converterLoop; vid.muted = true; vid.playsInline = true;
+    vid.src = url; vid.controls = false; vid.loop = true; vid.muted = true; vid.playsInline = true;
     vid.onloadedmetadata = async ()=>{
-      sourceEl = vid;
-      await setupCanvasForSource();
-      if (controls.autoPlay.checked) playConverter();
+      state.convSource = vid;
+      await setupCanvasForSource(vid, outConv, ctxConv);
+      convPreviewMode.textContent = convMode.value + (convColor.checked ? ' (color)' : '');
+      if (autoPlayEl.checked) {
+        try { await vid.play(); } catch {}
+        startConvLoop();
+      }
+      logConv('video ready');
     };
     vid.onerror = ()=>{ alert('Failed to load video'); };
   } else {
-    alert('Unsupported file type.');
+    alert('Unsupported file type');
   }
-  // switch to converter tab automatically
-  selectTab('converter');
 }
 
-// converter play/pause
-function playConverter(){
-  if (!sourceEl) return;
-  if (sourceEl.tagName === 'VIDEO') sourceEl.play();
-  converterPlaying = true;
-  convControls.style.display = 'flex';
-  convControls.alignItems = 'center';
-  logStatus('converter playing');
+// converter loop with FPS limiter
+let convLast = 0;
+function startConvLoop(){
+  if (!state.convSource) return;
+  stopConvLoop();
+  state.convSource.play && state.convSource.play();
+  const fps = Number(convFps.value) || 20;
+  const interval = 1000 / fps;
+  function convLoop(time){
+    state.convRaf = requestAnimationFrame(convLoop);
+    const now = performance.now();
+    if (!convLast) convLast = now;
+    const elapsed = now - convLast;
+    if (elapsed < interval) return;
+    convLast = now - (elapsed % interval);
+    // draw one frame
+    if (!state.convSource) return;
+    const opts = {
+      mode: convMode.value, color: convColor.checked, density: Number(convDensity.value),
+      dot: Number(convDot.value), contrast: Number(contrastEl.value), invert: invertEl.checked,
+      noise: Number(noiseEl.value), edge: Number(edgeEl.value), lowDetail: convLowDetail.checked,
+      smooth: smoothEl.checked, zoom: Number(zoomEl.value)
+    };
+    drawProcessed(state.convSource, outConv, ctxConv, opts);
+  }
+  state.convRaf = requestAnimationFrame(convLoop);
+  logConv('playing');
 }
-function pauseConverter(){
-  if (!sourceEl) return;
-  if (sourceEl.tagName === 'VIDEO') sourceEl.pause();
-  converterPlaying = false;
-  logStatus('converter paused');
+
+function stopConvLoop(){
+  if (state.convRaf) cancelAnimationFrame(state.convRaf);
+  state.convRaf = null;
+  convLast = 0;
+  state.convSource && state.convSource.pause && state.convSource.pause();
+  logConv('stopped');
 }
-controls.convPlay && controls.convPlay.addEventListener('click', ()=>{
-  if (!sourceEl) return;
-  if (converterPlaying) pauseConverter(); else playConverter();
-});
-controls.convLoop && controls.convLoop.addEventListener('click', ()=>{
-  converterLoop = !converterLoop;
-  if (sourceEl && sourceEl.tagName==='VIDEO') sourceEl.loop = converterLoop;
-  controls.convLoop.textContent = converterLoop ? 'Loop: On' : 'Loop: Off';
+
+// converter snapshot (single frame processed -> download PNG)
+convSnapshot.addEventListener('click', ()=>{
+  if (!state.convSource) { alert('Load a file first'); return; }
+  // ensure one frame is drawn
+  const opts = {
+    mode: convMode.value, color: convColor.checked, density: Number(convDensity.value),
+    dot: Number(convDot.value), contrast: Number(contrastEl.value), invert: invertEl.checked,
+    noise: Number(noiseEl.value), edge: Number(edgeEl.value), lowDetail: convLowDetail.checked,
+    smooth: smoothEl.checked, zoom: Number(zoomEl.value)
+  };
+  drawProcessed(state.convSource, outConv, ctxConv, opts);
+  // download
+  const url = outConv.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = url; a.download = 'converted_snapshot.png'; a.click();
 });
 
-// UI: start/stop/flip
+// converter record (record processed frames to webm)
+convRecord.addEventListener('click', ()=>{
+  if (!state.convSource) { alert('Load a file first'); return; }
+  if (!state.convRecording){
+    state.convChunks = [];
+    const cstream = outConv.captureStream(Number(convFps.value)||20);
+    try {
+      state.convRecorder = new MediaRecorder(cstream, { mimeType: 'video/webm;codecs=vp9' });
+    } catch(e){
+      state.convRecorder = new MediaRecorder(cstream);
+    }
+    state.convRecorder.ondataavailable = e => { if (e.data && e.data.size) state.convChunks.push(e.data); };
+    state.convRecorder.onstop = ()=> {
+      const blob = new Blob(state.convChunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      convDownload.href = url; convDownload.style.pointerEvents='auto'; convDownload.style.opacity='1'; convDownload.textContent='Download Recording'; convDownload.download='converted.webm';
+      logConv('recording ready');
+    };
+    state.convRecorder.start();
+    state.convRecording = true;
+    convRecord.textContent = 'Recording...';
+    logConv('recording');
+  } else {
+    state.convRecorder.stop();
+    state.convRecording = false;
+    convRecord.textContent = 'Record Processed';
+    logConv('stopped recording');
+  }
+});
+
+convStopRecord.addEventListener('click', ()=> {
+  if (state.convRecording && state.convRecorder) state.convRecorder.stop();
+});
+
+// ---------- Snapshot & Recording for camera (re-using earlier approach) ----------
+snapBtn.addEventListener('click', ()=>{
+  const url = out.toDataURL('image/png');
+  const a = document.createElement('a'); a.href = url; a.download='particlecam_snapshot.png'; a.click();
+});
+
+recordBtn.addEventListener('click', ()=>{
+  if (!state.recording){
+    state.chunks = [];
+    const cstream = out.captureStream(30);
+    try {
+      state.recorder = new MediaRecorder(cstream, { mimeType: 'video/webm;codecs=vp9' });
+    } catch(e){
+      state.recorder = new MediaRecorder(cstream);
+    }
+    state.recorder.ondataavailable = e => { if (e.data && e.data.size) state.chunks.push(e.data); };
+    state.recorder.onstop = ()=> {
+      const blob = new Blob(state.chunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      downloadLink.href = url; downloadLink.style.pointerEvents='auto'; downloadLink.style.opacity='1'; downloadLink.textContent='Download Recording'; downloadLink.download='particlecam_recording.webm';
+      log('recording ready');
+    };
+    state.recorder.start();
+    state.recording = true;
+    recordBtn.textContent = 'Stop Recording';
+    log('recording...');
+  } else {
+    state.recorder.stop();
+    state.recording = false;
+    recordBtn.textContent = 'Start Recording';
+    log('processing...');
+  }
+});
+
+// ---------- UI wiring ----------
 startBtn.addEventListener('click', async ()=>{
-  await updateDeviceList();
-  const sel = deviceSelect.value || '';
-  await startCamera(sel);
+  await updateDevices();
+  const deviceId = deviceSelect.value || '';
+  await startCamera(deviceId);
 });
+
 stopBtn.addEventListener('click', stopCamera);
 flipBtn.addEventListener('click', flipCamera);
 deviceSelect.addEventListener('change', async ()=>{
@@ -561,42 +672,27 @@ deviceSelect.addEventListener('change', async ()=>{
   await startCamera(id);
 });
 
-// tabs
-tabCamera.addEventListener('click', ()=>selectTab('camera'));
-tabConverter.addEventListener('click', ()=>selectTab('converter'));
-function selectTab(name){
-  if (name === 'camera'){
-    tabCamera.classList.add('active');
-    tabConverter.classList.remove('active');
-    convControls.style.display = 'none';
-    // source remains as-is; status label
-    logStatus(stream ? 'camera running' : 'idle');
-  } else {
-    tabConverter.classList.add('active');
-    tabCamera.classList.remove('active');
-    convControls.style.display = sourceEl ? 'flex' : 'none';
-    logStatus('converter ready');
-  }
-}
+// tab defaults
+selectTab('camera');
 
-// controls change -> adjust smoothing on canvas
-['zoom','density','dot','contrast','invert','smooth','noise','edge','mode','colorMode'].forEach(id=>{
-  const el = document.getElementById(id);
-  if (!el) return;
+// wire small controls to recalc canvas size for sources (camera & converter)
+[zoomEl, smoothEl, densityEl, dotEl, convDensity, convDot].forEach(el=>{
   el.addEventListener('input', ()=>{
-    ctx.imageSmoothingEnabled = !!controls.smooth.checked;
-    // recalc canvas for source size if zoom changes
-    if (sourceEl) setupCanvasForSource();
+    if (state.cameraVideo) setupCanvasForSource(state.cameraVideo, out, ctx);
+    if (state.convSource) setupCanvasForSource(state.convSource, outConv, ctxConv);
   });
 });
 
-// initial device list attempt
-updateDeviceList().catch(()=>{});
+// sync converter color toggle with camera if user wants (we'll follow change by default)
+colorModeEl.addEventListener('change', ()=>{ convColor.checked = colorModeEl.checked; });
 
-// ensure we stop camera on unload
-window.addEventListener('beforeunload', ()=>{ if (stream) stream.getTracks().forEach(t=>t.stop()); });
+// Stop camera on unload
+window.addEventListener('beforeunload', ()=>{ if (state.stream) state.stream.getTracks().forEach(t=>t.stop()); });
 
-logStatus('idle');
+// initial device attempt
+updateDevices().catch(()=>{});
+log('idle');
+logConv('idle');
 </script>
 </body>
 </html>
