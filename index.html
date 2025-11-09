@@ -1,92 +1,393 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Live ASCII Camera</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Particle / ASCII Camera Filter</title>
 <style>
-body {
-    background: black;
-    color: white;
-    font-family: monospace;
-    margin: 0;
-    text-align: center;
-    overflow: hidden;
-}
-#ascii {
-    white-space: pre;
-    line-height: 5px;
-    font-size: 5px;
-}
-#video {
-    display: none;
-}
-#startBtn {
-    padding: 15px 25px;
-    font-size: 18px;
-    margin-top: 50px;
-    cursor: pointer;
-    border: none;
-    border-radius: 10px;
-    background: #333;
-    color: #fff;
-}
+  :root{
+    --bg:#0b0b0b;
+    --ui:#111;
+    --accent:#4fd1c5;
+    --muted:#bbb;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:#eee;font-family:Inter, Roboto, system-ui, monospace}
+  .wrap{display:grid;grid-template-columns:1fr 320px;height:100%;}
+  .main{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px}
+  canvas{background:#000;max-width:100%;height:auto;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
+  .controls{background:var(--ui);padding:12px;display:flex;flex-direction:column;gap:10px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.02)}
+  .row{display:flex;gap:8px;align-items:center}
+  label{font-size:13px;color:var(--muted);min-width:90px}
+  input[type=range]{flex:1}
+  button{padding:8px 10px;border-radius:6px;border:0;background:linear-gradient(180deg,#222,#111);color:#fff;cursor:pointer}
+  .btn-row{display:flex;gap:8px;flex-wrap:wrap}
+  .small{font-size:12px;padding:6px 8px}
+  .status{font-size:12px;color:var(--muted);margin-top:6px}
+  .hint{font-size:12px;color:var(--muted);line-height:1.35}
+  .title{font-weight:600;margin-bottom:6px}
+  .toggle{display:flex;align-items:center;gap:8px}
+  .topbar{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:transparent}
+  .logo{font-weight:700;color:var(--accent)}
+  footer{font-size:12px;color:var(--muted);padding:8px}
+  @media(max-width:900px){ .wrap{grid-template-columns:1fr} .controls{position:sticky;top:0;z-index:5} }
 </style>
 </head>
 <body>
-<button id="startBtn">Start Camera</button>
-<video id="video" autoplay playsinline></video>
-<pre id="ascii"></pre>
+<div class="topbar">
+  <div class="logo">ParticleCam</div>
+  <div class="hint">Click Start → Allow camera → Use controls. Record uses processed canvas</div>
+</div>
+
+<div class="wrap">
+  <main class="main">
+    <canvas id="out"></canvas>
+    <div class="status" id="status">Status: idle</div>
+  </main>
+
+  <aside class="controls" aria-label="controls">
+    <div>
+      <div class="title">Camera & Mode</div>
+      <div class="row">
+        <button id="startBtn">Start Camera</button>
+        <button id="stopBtn" class="small">Stop</button>
+        <label style="min-width:60px">Mode</label>
+        <select id="mode">
+          <option value="particles">Particles (dot)</option>
+          <option value="ascii">ASCII text</option>
+          <option value="grid">Block grid</option>
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <div class="title">Transform</div>
+      <div class="row"><label>Zoom</label><input id="zoom" type="range" min="1" max="4" step="0.05" value="1"></div>
+      <div class="row"><label>Density</label><input id="density" type="range" min="4" max="160" step="1" value="60"></div>
+      <div class="row"><label>Dot size</label><input id="dot" type="range" min="0.2" max="6" step="0.1" value="1.4"></div>
+      <div class="row"><label>Contrast</label><input id="contrast" type="range" min="0" max="3" step="0.01" value="1.2"></div>
+      <div class="row"><label>Invert</label><input id="invert" type="checkbox"></div>
+    </div>
+
+    <div>
+      <div class="title">Smoothing & Effects</div>
+      <div class="row"><label>Smooth scale</label><input id="smooth" type="checkbox" checked></div>
+      <div class="row"><label>Noise</label><input id="noise" type="range" min="0" max="1" step="0.01" value="0.08"></div>
+      <div class="row"><label>Edge Boost</label><input id="edge" type="range" min="0" max="2" step="0.01" value="0.0"></div>
+    </div>
+
+    <div>
+      <div class="title">Capture</div>
+      <div class="btn-row">
+        <button id="snap">Snapshot</button>
+        <button id="record">Start Recording</button>
+        <button id="download" disabled>Download</button>
+      </div>
+      <div class="hint">Recording captures the processed canvas. Download produces a .webm</div>
+    </div>
+
+    <div>
+      <div class="title">Use in Calls</div>
+      <div class="hint">
+        To use this filter in Zoom/Discord: open this page in a window, then use <b>OBS</b> to capture the window and enable OBS Virtual Camera (or other virtual webcam). Browser can't directly act as system webcam.
+      </div>
+      <div style="margin-top:8px">
+        <button id="obsGuide" class="small">Show OBS steps</button>
+      </div>
+    </div>
+
+    <footer>Built for browser — mobile-friendly. HTTPS required for camera on mobile.</footer>
+  </aside>
+</div>
 
 <script>
-const video = document.getElementById('video');
-const ascii = document.getElementById('ascii');
+/*
+ ParticleCam - single-file app
+ - Modes: particles (dot), ascii (text), grid (block)
+ - Zoom, density, dot size, contrast, invert, noise, edge
+ - Snapshot & Record (MediaRecorder of canvas)
+ - Note: to use as virtual webcam in calls, see OBS / Virtual Camera workaround.
+*/
+
 const startBtn = document.getElementById('startBtn');
-const ASCII_CHARS = "@%#*+=-:. ";
+const stopBtn = document.getElementById('stopBtn');
+const statusEl = document.getElementById('status');
+const canvas = document.getElementById('out');
+const ctx = canvas.getContext('2d');
+let video;
+let stream;
+let rafId;
+let recording = false;
+let recorder;
+let recordedChunks = [];
 
-function getCharForPixel(value) {
-    return ASCII_CHARS[Math.floor(value / 255 * (ASCII_CHARS.length - 1))];
+const controls = {
+  zoom: document.getElementById('zoom'),
+  density: document.getElementById('density'),
+  dot: document.getElementById('dot'),
+  contrast: document.getElementById('contrast'),
+  invert: document.getElementById('invert'),
+  smooth: document.getElementById('smooth'),
+  noise: document.getElementById('noise'),
+  edge: document.getElementById('edge'),
+  mode: document.getElementById('mode'),
+  snap: document.getElementById('snap'),
+  record: document.getElementById('record'),
+  download: document.getElementById('download'),
+  obsGuide: document.getElementById('obsGuide')
+};
+
+function logStatus(s){ statusEl.textContent = 'Status: ' + s; }
+
+async function startCamera(){
+  if (stream) return;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+    video = document.createElement('video');
+    video.autoplay = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    await video.play();
+    setupCanvas();
+    loop();
+    logStatus('camera running');
+  } catch(err){
+    console.error(err);
+    alert('Camera access denied or not supported.');
+    logStatus('camera error');
+  }
 }
 
-function drawASCII() {
-    const width = Math.min(80, Math.floor(window.innerWidth / 6));
-    const height = Math.floor(video.videoHeight / video.videoWidth * width);
+function stopCamera(){
+  if (stream){
+    stream.getTracks().forEach(t=>t.stop());
+    stream = null;
+    cancelAnimationFrame(rafId);
+    logStatus('stopped');
+  }
+}
 
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
+function setupCanvas(){
+  // base canvas size — use video resolution but clamp for performance
+  const w = video.videoWidth || 640;
+  const h = video.videoHeight || 480;
+  // use a larger canvas for recording quality but scale processing via density
+  canvas.width = Math.min(1280, w);
+  canvas.height = Math.min(720, h);
+  // for smoother scaling
+  ctx.imageSmoothingEnabled = !!controls.smooth.checked;
+  ctx.imageSmoothingQuality = 'high';
+}
 
-    ctx.drawImage(video, 0, 0, width, height);
-    const frame = ctx.getImageData(0, 0, width, height).data;
+// basic contrast adjustment helper
+function adjustContrast(v, contrast){
+  // v in 0..255, contrast multiplier default 1
+  const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
+  return Math.min(255, Math.max(0, factor * (v - 128) + 128));
+}
 
-    let result = '';
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const i = (y * width + x) * 4;
-            const r = frame[i];
-            const g = frame[i + 1];
-            const b = frame[i + 2];
-            const brightness = 0.299*r + 0.587*g + 0.114*b;
-            result += getCharForPixel(brightness);
+// simple edge detect (Sobel approx) on a gray image data array
+function edgeDetect(gray, w, h){
+  const out = new Float32Array(gray.length);
+  for (let y=1;y<h-1;y++){
+    for (let x=1;x<w-1;x++){
+      const i = y*w + x;
+      const gx = -gray[i-w-1] - 2*gray[i-1] - gray[i+w-1] + gray[i-w+1] + 2*gray[i+1] + gray[i+w+1];
+      const gy = -gray[i-w-1] - 2*gray[i-w] - gray[i-w+1] + gray[i+w-1] + 2*gray[i+w] + gray[i+w+1];
+      out[i] = Math.min(255, Math.abs(gx) + Math.abs(gy));
+    }
+  }
+  return out;
+}
+
+function loop(){
+  rafId = requestAnimationFrame(loop);
+  if (!video || video.readyState < 2) return;
+  // processing grid size is density
+  const density = Math.max(4, parseInt(controls.density.value,10));
+  const zoom = parseFloat(controls.zoom.value);
+  const dotSize = parseFloat(controls.dot.value);
+  const contrast = parseFloat(controls.contrast.value);
+  const invert = controls.invert.checked;
+  const noiseLevel = parseFloat(controls.noise.value);
+  const edgeBoost = parseFloat(controls.edge.value);
+  const mode = controls.mode.value;
+  // compute processing dimensions
+  const srcW = Math.floor(canvas.width / density * (density)); // keep aligned
+  const srcH = Math.floor(canvas.height / density * (density));
+  const procW = Math.max(8, Math.floor(canvas.width / density));
+  const procH = Math.max(8, Math.floor(canvas.height / density));
+
+  // draw video onto offscreen canvas scaled by zoom
+  const sx = Math.max(1, Math.floor(video.videoWidth/zoom));
+  const sy = Math.max(1, Math.floor(video.videoHeight/zoom));
+  const ox = Math.floor((video.videoWidth - sx)/2);
+  const oy = Math.floor((video.videoHeight - sy)/2);
+
+  // temporary canvas for sampling
+  const tmp = document.createElement('canvas');
+  tmp.width = Math.max(8, procW);
+  tmp.height = Math.max(8, procH);
+  const tctx = tmp.getContext('2d', { willReadFrequently: true });
+  tctx.imageSmoothingEnabled = !!controls.smooth.checked;
+  tctx.drawImage(video, ox, oy, sx, sy, 0, 0, tmp.width, tmp.height);
+
+  const img = tctx.getImageData(0,0,tmp.width,tmp.height);
+  const data = img.data;
+  // compute grayscale + contrast
+  const gray = new Float32Array(tmp.width * tmp.height);
+  for (let y=0;y<tmp.height;y++){
+    for (let x=0;x<tmp.width;x++){
+      const i = (y*tmp.width + x) * 4;
+      const r = data[i], g = data[i+1], b = data[i+2];
+      let v = 0.299*r + 0.587*g + 0.114*b;
+      // contrast adjust roughly — map contrast slider 0..3
+      v = adjustContrast(v, contrast);
+      gray[y*tmp.width + x] = v;
+    }
+  }
+  // optional edge
+  let edges = null;
+  if (edgeBoost > 0) edges = edgeDetect(gray, tmp.width, tmp.height);
+
+  // draw result to main canvas
+  ctx.clearRect(0,0,canvas.width, canvas.height);
+  // center scale factors
+  const cellW = canvas.width / tmp.width;
+  const cellH = canvas.height / tmp.height;
+
+  if (mode === 'particles') {
+    // draw dots
+    ctx.fillStyle = '#fff';
+    for (let y=0;y<tmp.height;y++){
+      for (let x=0;x<tmp.width;x++){
+        const v = gray[y*tmp.width + x];
+        let val = v/255;
+        if (invert) val = 1 - val;
+        // combine edge
+        if (edges) {
+          val = Math.min(1, val + edges[y*tmp.width + x] / 255 * edgeBoost);
         }
-        result += '\n';
+        // apply a small noise
+        val = Math.min(1, Math.max(0, val + (Math.random()-0.5) * noiseLevel));
+        const cx = (x + 0.5) * cellW;
+        const cy = (y + 0.5) * cellH;
+        const radius = Math.max(0.2, dotSize * Math.sqrt(val)) * Math.min(cellW, cellH) * 0.5;
+        ctx.beginPath();
+        // darker = more filled (we treat 1 as white; invert flips)
+        ctx.globalAlpha = Math.max(0.08, val);
+        ctx.arc(cx, cy, radius, 0, Math.PI*2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
     }
-    ascii.textContent = result;
-    requestAnimationFrame(drawASCII);
+  } else if (mode === 'grid') {
+    // solid blocks
+    for (let y=0;y<tmp.height;y++){
+      for (let x=0;x<tmp.width;x++){
+        let v = gray[y*tmp.width + x]/255;
+        if (invert) v = 1 - v;
+        if (edges) v = Math.min(1, v + edges[y*tmp.width + x] / 255 * edgeBoost);
+        v = Math.min(1, Math.max(0, v + (Math.random()-0.5) * noiseLevel));
+        const px = Math.floor(x * cellW);
+        const py = Math.floor(y * cellH);
+        ctx.fillStyle = `rgb(${Math.floor(v*255)},${Math.floor(v*255)},${Math.floor(v*255)})`;
+        ctx.fillRect(px, py, Math.ceil(cellW), Math.ceil(cellH));
+      }
+    }
+  } else if (mode === 'ascii') {
+    // ascii text mode: map brightness to characters
+    const asciiChars = "@%#*+=-:. ";
+    ctx.fillStyle = '#fff';
+    ctx.textBaseline = 'middle';
+    const fontSize = Math.min(cellW, cellH) * 1.1;
+    ctx.font = `${fontSize}px monospace`;
+    for (let y=0;y<tmp.height;y++){
+      for (let x=0;x<tmp.width;x++){
+        let v = gray[y*tmp.width + x]/255;
+        if (invert) v = 1 - v;
+        if (edges) v = Math.min(1, v + edges[y*tmp.width + x] / 255 * edgeBoost);
+        v = Math.min(1, Math.max(0, v));
+        const ch = asciiChars[Math.floor((1 - v) * (asciiChars.length - 1))];
+        const px = (x + 0.5) * cellW;
+        const py = (y + 0.5) * cellH;
+        ctx.fillText(ch, px - fontSize/2, py);
+      }
+    }
+  }
 }
 
-startBtn.addEventListener('click', async () => {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
-        startBtn.style.display = 'none';
-        video.addEventListener('play', drawASCII);
-    } catch (err) {
-        alert('Camera access denied or not supported.');
-        console.error(err);
-    }
+// Snapshot
+controls.snap.addEventListener('click', ()=>{
+  const dataUrl = canvas.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = 'particlecam_snapshot.png';
+  a.click();
 });
+
+// Recording using MediaRecorder of canvas stream
+controls.record.addEventListener('click', async ()=>{
+  if (!stream && !canvas) { alert('Start the camera first'); return; }
+  if (!recording){
+    recordedChunks = [];
+    const cstream = canvas.captureStream(30); // 30fps
+    recorder = new MediaRecorder(cstream, { mimeType: 'video/webm;codecs=vp9' });
+    recorder.ondataavailable = e => { if (e.data.size) recordedChunks.push(e.data); };
+    recorder.onstop = () => {
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      controls.download.disabled = false;
+      controls.download.href = url;
+      controls.download.download = 'particlecam_recording.webm';
+      logStatus('recording ready to download');
+    };
+    recorder.start();
+    recording = true;
+    controls.record.textContent = 'Stop Recording';
+    logStatus('recording...');
+  } else {
+    recorder.stop();
+    recording = false;
+    controls.record.textContent = 'Start Recording';
+    logStatus('processing recording...');
+  }
+});
+
+// Download button
+controls.download.addEventListener('click', (e)=>{
+  if (controls.download.disabled) e.preventDefault();
+});
+
+// Start / Stop camera UI
+startBtn.addEventListener('click', startCamera);
+stopBtn.addEventListener('click', stopCamera);
+
+// Observers for controls refresh
+const inputs = ['zoom','density','dot','contrast','invert','smooth','noise','edge','mode'];
+inputs.forEach(id=>{
+  document.getElementById(id).addEventListener('input', ()=>{
+    if (ctx) ctx.imageSmoothingEnabled = !!controls.smooth.checked;
+  });
+});
+
+// small OBS guide modal-ish (simple alert)
+controls.obsGuide.addEventListener('click', ()=>{
+  alert(
+`Quick OBS steps:
+1) Open OBS. Add a Source -> Window Capture and pick your browser window showing this page (or use Browser source pointing to this page).
+2) Resize the source to fit the canvas.
+3) In OBS, enable "Start Virtual Camera" (Controls).
+4) In Zoom/Discord, choose "OBS Virtual Camera" as your webcam.
+Note: On some systems you'll need OBS Virtual Camera plugin or built-in feature depending on OBS version.`
+);
+});
+
+// Accessibility: try to stop recording/download cleanup on page unload
+window.addEventListener('beforeunload', ()=>{ if (stream) stream.getTracks().forEach(t=>t.stop()); });
+
+// Initial status
+logStatus('idle');
+
 </script>
 </body>
 </html>
