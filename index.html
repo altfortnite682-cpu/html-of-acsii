@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live ASCII Camera</title>
+<style>
+body {
+    background: black;
+    color: white;
+    font-family: monospace;
+    margin: 0;
+    text-align: center;
+    overflow: hidden;
+}
+#ascii {
+    white-space: pre;
+    line-height: 5px;
+    font-size: 5px;
+}
+#video {
+    display: none;
+}
+#startBtn {
+    padding: 15px 25px;
+    font-size: 18px;
+    margin-top: 50px;
+    cursor: pointer;
+    border: none;
+    border-radius: 10px;
+    background: #333;
+    color: #fff;
+}
+</style>
+</head>
+<body>
+<button id="startBtn">Start Camera</button>
+<video id="video" autoplay playsinline></video>
+<pre id="ascii"></pre>
+
+<script>
+const video = document.getElementById('video');
+const ascii = document.getElementById('ascii');
+const startBtn = document.getElementById('startBtn');
+const ASCII_CHARS = "@%#*+=-:. ";
+
+function getCharForPixel(value) {
+    return ASCII_CHARS[Math.floor(value / 255 * (ASCII_CHARS.length - 1))];
+}
+
+function drawASCII() {
+    const width = Math.min(80, Math.floor(window.innerWidth / 6));
+    const height = Math.floor(video.videoHeight / video.videoWidth * width);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
+    ctx.drawImage(video, 0, 0, width, height);
+    const frame = ctx.getImageData(0, 0, width, height).data;
+
+    let result = '';
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            const r = frame[i];
+            const g = frame[i + 1];
+            const b = frame[i + 2];
+            const brightness = 0.299*r + 0.587*g + 0.114*b;
+            result += getCharForPixel(brightness);
+        }
+        result += '\n';
+    }
+    ascii.textContent = result;
+    requestAnimationFrame(drawASCII);
+}
+
+startBtn.addEventListener('click', async () => {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        startBtn.style.display = 'none';
+        video.addEventListener('play', drawASCII);
+    } catch (err) {
+        alert('Camera access denied or not supported.');
+        console.error(err);
+    }
+});
+</script>
+</body>
+</html>
