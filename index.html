@@ -3,124 +3,158 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Particle / ASCII Camera Filter</title>
+<title>ParticleCam — Camera + Converter (Color, Flip, Record)</title>
 <style>
   :root{
-    --bg:#0b0b0b;
-    --ui:#111;
-    --accent:#4fd1c5;
-    --muted:#bbb;
+    --bg:#070707; --ui:#0f0f12; --accent:#3dd6b8; --muted:#9aa;
   }
   html,body{height:100%;margin:0;background:var(--bg);color:#eee;font-family:Inter, Roboto, system-ui, monospace}
-  .wrap{display:grid;grid-template-columns:1fr 320px;height:100%;}
-  .main{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px}
-  canvas{background:#000;max-width:100%;height:auto;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
-  .controls{background:var(--ui);padding:12px;display:flex;flex-direction:column;gap:10px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.02)}
+  .app{max-width:1200px;margin:0 auto;padding:10px}
+  header{display:flex;justify-content:space-between;align-items:center;padding:8px 6px}
+  .logo{font-weight:700;color:var(--accent)} .sub{font-size:12px;color:var(--muted)}
+  .tabs{display:flex;gap:8px;padding:8px}
+  .tab{padding:8px 12px;border-radius:8px;background:transparent;border:1px solid transparent;cursor:pointer}
+  .tab.active{background:linear-gradient(180deg,#101214,#0b0b0d);border-color:#191919}
+  .layout{display:grid;grid-template-columns:1fr 340px;gap:12px;align-items:start}
+  canvas{background:#000;border-radius:8px;display:block;width:100%;height:auto;max-height:78vh;object-fit:contain}
+  .controls{background:var(--ui);padding:12px;border-radius:10px;display:flex;flex-direction:column;gap:10px}
   .row{display:flex;gap:8px;align-items:center}
-  label{font-size:13px;color:var(--muted);min-width:90px}
+  label{min-width:86px;font-size:13px;color:var(--muted)}
   input[type=range]{flex:1}
-  button{padding:8px 10px;border-radius:6px;border:0;background:linear-gradient(180deg,#222,#111);color:#fff;cursor:pointer}
+  select,input[type=file]{flex:1;padding:6px;border-radius:6px;border:1px solid #222;background:#0b0b0b;color:#fff}
+  button{padding:8px 10px;border-radius:8px;border:0;background:linear-gradient(180deg,#222,#111);color:#fff;cursor:pointer}
   .btn-row{display:flex;gap:8px;flex-wrap:wrap}
+  footer{font-size:12px;color:var(--muted);padding:10px 0}
+  .hint{font-size:12px;color:var(--muted)}
   .small{font-size:12px;padding:6px 8px}
-  .status{font-size:12px;color:var(--muted);margin-top:6px}
-  .hint{font-size:12px;color:var(--muted);line-height:1.35}
-  .title{font-weight:600;margin-bottom:6px}
-  .toggle{display:flex;align-items:center;gap:8px}
-  .topbar{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:transparent}
-  .logo{font-weight:700;color:var(--accent)}
-  footer{font-size:12px;color:var(--muted);padding:8px}
-  @media(max-width:900px){ .wrap{grid-template-columns:1fr} .controls{position:sticky;top:0;z-index:5} }
+  @media(max-width:980px){
+    .layout{grid-template-columns:1fr}
+    canvas{max-height:55vh}
+  }
+  /* converter extras */
+  .converter-area{margin-top:12px;background:#070707;border-radius:8px;padding:10px;border:1px dashed #222}
+  .file-info{font-size:13px;color:var(--muted);margin-top:6px}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <div class="logo">ParticleCam</div>
-  <div class="hint">Click Start → Allow camera → Use controls. Record uses processed canvas</div>
-</div>
-
-<div class="wrap">
-  <main class="main">
-    <canvas id="out"></canvas>
-    <div class="status" id="status">Status: idle</div>
-  </main>
-
-  <aside class="controls" aria-label="controls">
+<div class="app">
+  <header>
     <div>
-      <div class="title">Camera & Mode</div>
-      <div class="row">
-        <button id="startBtn">Start Camera</button>
-        <button id="stopBtn" class="small">Stop</button>
-        <label style="min-width:60px">Mode</label>
-        <select id="mode">
-          <option value="particles">Particles (dot)</option>
-          <option value="ascii">ASCII text</option>
-          <option value="grid">Block grid</option>
-        </select>
+      <div class="logo">ParticleCam</div>
+      <div class="sub">Live camera filter + converter — color, flip camera, record & convert files</div>
+    </div>
+    <div class="hint">HTTPS required for mobile camera. Use OBS Virtual Camera to use in calls.</div>
+  </header>
+
+  <div class="tabs">
+    <div id="tabCamera" class="tab active">Camera</div>
+    <div id="tabConverter" class="tab">Converter (Images/GIFs/Videos)</div>
+  </div>
+
+  <div class="layout">
+    <!-- Main preview -->
+    <main>
+      <canvas id="out" width="1280" height="720"></canvas>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+        <div class="hint" id="status">Status: idle</div>
+        <div class="hint">Mode preview: <span id="previewMode">particles</span></div>
       </div>
-    </div>
 
-    <div>
-      <div class="title">Transform</div>
-      <div class="row"><label>Zoom</label><input id="zoom" type="range" min="1" max="4" step="0.05" value="1"></div>
-      <div class="row"><label>Density</label><input id="density" type="range" min="4" max="160" step="1" value="60"></div>
-      <div class="row"><label>Dot size</label><input id="dot" type="range" min="0.2" max="6" step="0.1" value="1.4"></div>
-      <div class="row"><label>Contrast</label><input id="contrast" type="range" min="0" max="3" step="0.01" value="1.2"></div>
-      <div class="row"><label>Invert</label><input id="invert" type="checkbox"></div>
-    </div>
-
-    <div>
-      <div class="title">Smoothing & Effects</div>
-      <div class="row"><label>Smooth scale</label><input id="smooth" type="checkbox" checked></div>
-      <div class="row"><label>Noise</label><input id="noise" type="range" min="0" max="1" step="0.01" value="0.08"></div>
-      <div class="row"><label>Edge Boost</label><input id="edge" type="range" min="0" max="2" step="0.01" value="0.0"></div>
-    </div>
-
-    <div>
-      <div class="title">Capture</div>
-      <div class="btn-row">
-        <button id="snap">Snapshot</button>
-        <button id="record">Start Recording</button>
-        <button id="download" disabled>Download</button>
+      <!-- Converter play controls (when converter active) -->
+      <div id="convControls" style="margin-top:8px;display:none;gap:8px;align-items:center">
+        <button id="convPlay" class="small">Play/Pause</button>
+        <button id="convLoop" class="small">Toggle Loop</button>
       </div>
-      <div class="hint">Recording captures the processed canvas. Download produces a .webm</div>
-    </div>
+    </main>
 
-    <div>
-      <div class="title">Use in Calls</div>
-      <div class="hint">
-        To use this filter in Zoom/Discord: open this page in a window, then use <b>OBS</b> to capture the window and enable OBS Virtual Camera (or other virtual webcam). Browser can't directly act as system webcam.
+    <!-- Controls / Sidebar -->
+    <aside class="controls">
+      <div>
+        <div style="font-weight:600">Camera</div>
+        <div class="row" style="margin-top:6px">
+          <button id="startBtn">Start Camera</button>
+          <button id="stopBtn" class="small">Stop</button>
+          <button id="flipBtn" class="small">Flip Camera</button>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <label>Device</label>
+          <select id="deviceSelect"><option value="">Auto</option></select>
+        </div>
       </div>
-      <div style="margin-top:8px">
-        <button id="obsGuide" class="small">Show OBS steps</button>
-      </div>
-    </div>
 
-    <footer>Built for browser — mobile-friendly. HTTPS required for camera on mobile.</footer>
-  </aside>
+      <div>
+        <div style="font-weight:600">Mode</div>
+        <div class="row" style="margin-top:6px">
+          <label>Style</label>
+          <select id="mode"><option value="particles">Particles</option><option value="grid">Grid</option><option value="ascii">ASCII Text</option></select>
+        </div>
+        <div class="row"><label>Color</label><input id="colorMode" type="checkbox"></div>
+      </div>
+
+      <div>
+        <div style="font-weight:600">Transform</div>
+        <div class="row"><label>Zoom</label><input id="zoom" type="range" min="1" max="4" step="0.05" value="1"></div>
+        <div class="row"><label>Density</label><input id="density" type="range" min="4" max="160" step="1" value="60"></div>
+        <div class="row"><label>Dot size</label><input id="dot" type="range" min="0.2" max="6" step="0.1" value="1.4"></div>
+        <div class="row"><label>Contrast</label><input id="contrast" type="range" min="0" max="3" step="0.01" value="1.2"></div>
+        <div class="row"><label>Invert</label><input id="invert" type="checkbox"></div>
+      </div>
+
+      <div>
+        <div style="font-weight:600">Smoothing & Effects</div>
+        <div class="row"><label>Smooth</label><input id="smooth" type="checkbox" checked></div>
+        <div class="row"><label>Noise</label><input id="noise" type="range" min="0" max="1" step="0.01" value="0.08"></div>
+        <div class="row"><label>Edge</label><input id="edge" type="range" min="0" max="2" step="0.01" value="0.0"></div>
+      </div>
+
+      <div>
+        <div style="font-weight:600">Capture</div>
+        <div class="btn-row" style="margin-top:6px">
+          <button id="snap">Snapshot</button>
+          <button id="record">Start Recording</button>
+          <a id="download" class="small" style="display:inline-block;pointer-events:none;opacity:0.5">Download</a>
+        </div>
+        <div class="hint" style="margin-top:6px">Recording captures processed canvas (webm).</div>
+      </div>
+
+      <div>
+        <div style="font-weight:600">Converter</div>
+        <div class="converter-area">
+          <div class="row"><label>Upload</label><input id="fileIn" type="file" accept="image/*,video/*"></div>
+          <div class="file-info" id="fileInfo">No file loaded.</div>
+          <div style="margin-top:8px" class="row">
+            <label>Auto play</label><input id="autoPlay" type="checkbox" checked>
+          </div>
+        </div>
+      </div>
+
+      <footer>Tip: For calls, open this page in a window and capture via OBS Window Capture → Start Virtual Camera.</footer>
+    </aside>
+  </div>
 </div>
 
 <script>
-/*
- ParticleCam - single-file app
- - Modes: particles (dot), ascii (text), grid (block)
- - Zoom, density, dot size, contrast, invert, noise, edge
- - Snapshot & Record (MediaRecorder of canvas)
- - Note: to use as virtual webcam in calls, see OBS / Virtual Camera workaround.
+/* Single-file ParticleCam with:
+ - camera start/stop
+ - flip camera (cycle through video input devices)
+ - color mode (sample rgb)
+ - converter: load image / GIF / video and process with same engine
+ - snapshot & recording using canvas.captureStream
 */
 
+// DOM
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
+const flipBtn  = document.getElementById('flipBtn');
+const deviceSelect = document.getElementById('deviceSelect');
 const statusEl = document.getElementById('status');
 const canvas = document.getElementById('out');
-const ctx = canvas.getContext('2d');
-let video;
-let stream;
-let rafId;
-let recording = false;
-let recorder;
-let recordedChunks = [];
+const ctx = canvas.getContext('2d', { alpha: false });
+const previewMode = document.getElementById('previewMode');
 
 const controls = {
+  mode: document.getElementById('mode'),
+  colorMode: document.getElementById('colorMode'),
   zoom: document.getElementById('zoom'),
   density: document.getElementById('density'),
   dot: document.getElementById('dot'),
@@ -129,29 +163,76 @@ const controls = {
   smooth: document.getElementById('smooth'),
   noise: document.getElementById('noise'),
   edge: document.getElementById('edge'),
-  mode: document.getElementById('mode'),
   snap: document.getElementById('snap'),
   record: document.getElementById('record'),
   download: document.getElementById('download'),
-  obsGuide: document.getElementById('obsGuide')
+  fileIn: document.getElementById('fileIn'),
+  fileInfo: document.getElementById('fileInfo'),
+  autoPlay: document.getElementById('autoPlay'),
+  convPlay: document.getElementById('convPlay'),
+  convLoop: document.getElementById('convLoop')
 };
 
-function logStatus(s){ statusEl.textContent = 'Status: ' + s; }
+const tabCamera = document.getElementById('tabCamera');
+const tabConverter = document.getElementById('tabConverter');
+const convControls = document.getElementById('convControls');
 
-async function startCamera(){
-  if (stream) return;
+// state
+let stream = null;
+let videoEl = null;         // camera video element
+let sourceEl = null;        // current source: camera videoEl or uploaded media element (img/video)
+let rafId = null;
+let recording = false, recorder = null, chunks = [];
+let devices = [];
+let currentDeviceId = '';
+let converterPlaying = false, converterLoop = true;
+
+// canvas base size
+canvas.width = 1280; canvas.height = 720;
+ctx.imageSmoothingEnabled = true;
+
+// UTIL
+function logStatus(s){ statusEl.textContent = 'Status: ' + s; }
+function q(sel){ return document.querySelector(sel); }
+
+// enumerate devices
+async function updateDeviceList(){
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-    video = document.createElement('video');
-    video.autoplay = true;
-    video.playsInline = true;
-    video.srcObject = stream;
-    await video.play();
-    setupCanvas();
+    const list = await navigator.mediaDevices.enumerateDevices();
+    devices = list.filter(d => d.kind === 'videoinput');
+    deviceSelect.innerHTML = '<option value="">Auto</option>';
+    devices.forEach((d,i)=>{
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Camera ${i+1}`;
+      deviceSelect.appendChild(opt);
+    });
+  } catch (e) {
+    console.warn('enumerateDevices failed', e);
+  }
+}
+
+// start camera with constraints (deviceId optional)
+async function startCamera(deviceId){
+  if (stream) stopCamera();
+  try {
+    const constraints = {
+      video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" },
+      audio: false
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    videoEl = document.createElement('video');
+    videoEl.autoplay = true; videoEl.playsInline = true; videoEl.muted = true;
+    videoEl.srcObject = stream;
+    await videoEl.play();
+    sourceEl = videoEl;
+    currentDeviceId = deviceId || '';
+    await setupCanvasForSource();
     loop();
+    await updateDeviceList();
     logStatus('camera running');
-  } catch(err){
-    console.error(err);
+  } catch (err){
+    console.error('startCamera error', err);
     alert('Camera access denied or not supported.');
     logStatus('camera error');
   }
@@ -159,35 +240,60 @@ async function startCamera(){
 
 function stopCamera(){
   if (stream){
-    stream.getTracks().forEach(t=>t.stop());
+    stream.getTracks().forEach(t => t.stop());
     stream = null;
-    cancelAnimationFrame(rafId);
+    sourceEl = null;
+    if (rafId) cancelAnimationFrame(rafId);
     logStatus('stopped');
   }
 }
 
-function setupCanvas(){
-  // base canvas size — use video resolution but clamp for performance
-  const w = video.videoWidth || 640;
-  const h = video.videoHeight || 480;
-  // use a larger canvas for recording quality but scale processing via density
-  canvas.width = Math.min(1280, w);
-  canvas.height = Math.min(720, h);
-  // for smoother scaling
+// flip camera: cycle device list or flip facingMode if devices unknown
+async function flipCamera(){
+  await updateDeviceList();
+  if (devices.length === 0) {
+    // try toggling facingMode
+    if (!currentDeviceId) {
+      await startCamera(); // default user
+    } else {
+      // restart without deviceId (browser chooses environment maybe)
+      await startCamera();
+    }
+    return;
+  }
+  // find index of current
+  const idx = devices.findIndex(d => d.deviceId === currentDeviceId);
+  const next = devices[(idx + 1) % devices.length];
+  await startCamera(next.deviceId);
+  deviceSelect.value = next.deviceId;
+}
+
+// setup canvas resolution based on source resolution
+async function setupCanvasForSource(){
+  if (!sourceEl) return;
+  const w = sourceEl.videoWidth || sourceEl.naturalWidth || 640;
+  const h = sourceEl.videoHeight || sourceEl.naturalHeight || 480;
+  // set canvas to a max of 1280x720 for recording quality but keep aspect
+  const maxW = 1280, maxH = 720;
+  const ratio = Math.min(maxW / w, maxH / h, 1);
+  canvas.width = Math.round(w * ratio);
+  canvas.height = Math.round(h * ratio);
   ctx.imageSmoothingEnabled = !!controls.smooth.checked;
   ctx.imageSmoothingQuality = 'high';
 }
 
-// basic contrast adjustment helper
+// brightness contrast helper (contrast slider 0..3)
 function adjustContrast(v, contrast){
-  // v in 0..255, contrast multiplier default 1
-  const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
-  return Math.min(255, Math.max(0, factor * (v - 128) + 128));
+  // v 0..255
+  const c = contrast;
+  // simple linear-ish contrast
+  const f = (259 * (c * 255 + 255)) / (255 * (259 - c * 255));
+  return Math.min(255, Math.max(0, f * (v - 128) + 128));
 }
 
-// simple edge detect (Sobel approx) on a gray image data array
+// edge detection (Sobel approx) on gray array
 function edgeDetect(gray, w, h){
-  const out = new Float32Array(gray.length);
+  const out = new Float32Array(w*h);
   for (let y=1;y<h-1;y++){
     for (let x=1;x<w-1;x++){
       const i = y*w + x;
@@ -199,10 +305,12 @@ function edgeDetect(gray, w, h){
   return out;
 }
 
+// main loop: draws processed output from sourceEl (camera or uploaded) to canvas
 function loop(){
   rafId = requestAnimationFrame(loop);
-  if (!video || video.readyState < 2) return;
-  // processing grid size is density
+  if (!sourceEl || (sourceEl.readyState !== undefined && sourceEl.readyState < 2)) return;
+
+  // gather params
   const density = Math.max(4, parseInt(controls.density.value,10));
   const zoom = parseFloat(controls.zoom.value);
   const dotSize = parseFloat(controls.dot.value);
@@ -211,112 +319,128 @@ function loop(){
   const noiseLevel = parseFloat(controls.noise.value);
   const edgeBoost = parseFloat(controls.edge.value);
   const mode = controls.mode.value;
-  // compute processing dimensions
-  const srcW = Math.floor(canvas.width / density * (density)); // keep aligned
-  const srcH = Math.floor(canvas.height / density * (density));
-  const procW = Math.max(8, Math.floor(canvas.width / density));
-  const procH = Math.max(8, Math.floor(canvas.height / density));
+  const color = controls.colorMode.checked;
+  const tmpW = Math.max(8, Math.floor(canvas.width / Math.max(1, density/60)));
+  const tmpH = Math.max(8, Math.floor(canvas.height / Math.max(1, density/60)));
 
-  // draw video onto offscreen canvas scaled by zoom
-  const sx = Math.max(1, Math.floor(video.videoWidth/zoom));
-  const sy = Math.max(1, Math.floor(video.videoHeight/zoom));
-  const ox = Math.floor((video.videoWidth - sx)/2);
-  const oy = Math.floor((video.videoHeight - sy)/2);
+  // sample region from source with zoom
+  const sw = sourceEl.videoWidth || sourceEl.naturalWidth || canvas.width;
+  const sh = sourceEl.videoHeight || sourceEl.naturalHeight || canvas.height;
+  const sx = Math.max(0, Math.floor((sw - sw/zoom) / 2));
+  const sy = Math.max(0, Math.floor((sh - sh/zoom) / 2));
+  const ssw = Math.max(1, Math.floor(sw/zoom));
+  const ssh = Math.max(1, Math.floor(sh/zoom));
 
-  // temporary canvas for sampling
+  // draw onto temp canvas to sample pixels
   const tmp = document.createElement('canvas');
-  tmp.width = Math.max(8, procW);
-  tmp.height = Math.max(8, procH);
+  tmp.width = tmpW; tmp.height = tmpH;
   const tctx = tmp.getContext('2d', { willReadFrequently: true });
   tctx.imageSmoothingEnabled = !!controls.smooth.checked;
-  tctx.drawImage(video, ox, oy, sx, sy, 0, 0, tmp.width, tmp.height);
+  tctx.drawImage(sourceEl, sx, sy, ssw, ssh, 0, 0, tmp.width, tmp.height);
 
   const img = tctx.getImageData(0,0,tmp.width,tmp.height);
-  const data = img.data;
-  // compute grayscale + contrast
-  const gray = new Float32Array(tmp.width * tmp.height);
+  const d = img.data;
+  const gray = new Float32Array(tmp.width*tmp.height);
+  // compute grayscale and optionally color, apply contrast
   for (let y=0;y<tmp.height;y++){
     for (let x=0;x<tmp.width;x++){
-      const i = (y*tmp.width + x) * 4;
-      const r = data[i], g = data[i+1], b = data[i+2];
+      const i = (y*tmp.width + x)*4;
+      const r = d[i], g = d[i+1], b = d[i+2];
       let v = 0.299*r + 0.587*g + 0.114*b;
-      // contrast adjust roughly — map contrast slider 0..3
       v = adjustContrast(v, contrast);
       gray[y*tmp.width + x] = v;
     }
   }
-  // optional edge
   let edges = null;
   if (edgeBoost > 0) edges = edgeDetect(gray, tmp.width, tmp.height);
 
-  // draw result to main canvas
+  // draw to main canvas
   ctx.clearRect(0,0,canvas.width, canvas.height);
-  // center scale factors
   const cellW = canvas.width / tmp.width;
   const cellH = canvas.height / tmp.height;
 
   if (mode === 'particles') {
     // draw dots
-    ctx.fillStyle = '#fff';
+    ctx.globalCompositeOperation = 'source-over';
     for (let y=0;y<tmp.height;y++){
       for (let x=0;x<tmp.width;x++){
-        const v = gray[y*tmp.width + x];
-        let val = v/255;
-        if (invert) val = 1 - val;
-        // combine edge
-        if (edges) {
-          val = Math.min(1, val + edges[y*tmp.width + x] / 255 * edgeBoost);
-        }
-        // apply a small noise
-        val = Math.min(1, Math.max(0, val + (Math.random()-0.5) * noiseLevel));
+        const i = y*tmp.width + x;
+        let v = gray[i]/255;
+        if (invert) v = 1 - v;
+        if (edges) v = Math.min(1, v + edges[i] / 255 * edgeBoost);
+        v = Math.min(1, Math.max(0, v + (Math.random()-0.5) * noiseLevel));
         const cx = (x + 0.5) * cellW;
         const cy = (y + 0.5) * cellH;
-        const radius = Math.max(0.2, dotSize * Math.sqrt(val)) * Math.min(cellW, cellH) * 0.5;
+        const radius = Math.max(0.2, dotSize * Math.sqrt(v)) * Math.min(cellW, cellH) * 0.5;
+        if (color) {
+          const pi = (y*tmp.width + x)*4;
+          const r = d[pi], g = d[pi+1], b = d[pi+2];
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+        } else {
+          const grey = Math.floor(v*255);
+          ctx.fillStyle = `rgb(${grey},${grey},${grey})`;
+        }
+        ctx.globalAlpha = Math.max(0.08, v);
         ctx.beginPath();
-        // darker = more filled (we treat 1 as white; invert flips)
-        ctx.globalAlpha = Math.max(0.08, val);
         ctx.arc(cx, cy, radius, 0, Math.PI*2);
         ctx.fill();
-        ctx.globalAlpha = 1;
       }
     }
-  } else if (mode === 'grid') {
-    // solid blocks
+    ctx.globalAlpha = 1;
+  } else if (mode === 'grid'){
     for (let y=0;y<tmp.height;y++){
       for (let x=0;x<tmp.width;x++){
-        let v = gray[y*tmp.width + x]/255;
+        const i = y*tmp.width + x;
+        let v = gray[i]/255;
         if (invert) v = 1 - v;
-        if (edges) v = Math.min(1, v + edges[y*tmp.width + x] / 255 * edgeBoost);
+        if (edges) v = Math.min(1, v + edges[i] / 255 * edgeBoost);
         v = Math.min(1, Math.max(0, v + (Math.random()-0.5) * noiseLevel));
         const px = Math.floor(x * cellW);
         const py = Math.floor(y * cellH);
-        ctx.fillStyle = `rgb(${Math.floor(v*255)},${Math.floor(v*255)},${Math.floor(v*255)})`;
+        if (color) {
+          const pi = (y*tmp.width + x)*4;
+          const r = d[pi], g = d[pi+1], b = d[pi+2];
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+        } else {
+          const grey = Math.floor(v*255);
+          ctx.fillStyle = `rgb(${grey},${grey},${grey})`;
+        }
         ctx.fillRect(px, py, Math.ceil(cellW), Math.ceil(cellH));
       }
     }
-  } else if (mode === 'ascii') {
-    // ascii text mode: map brightness to characters
+  } else if (mode === 'ascii'){
+    // draw ascii characters; color if requested via fillStyle
     const asciiChars = "@%#*+=-:. ";
-    ctx.fillStyle = '#fff';
     ctx.textBaseline = 'middle';
     const fontSize = Math.min(cellW, cellH) * 1.1;
     ctx.font = `${fontSize}px monospace`;
     for (let y=0;y<tmp.height;y++){
       for (let x=0;x<tmp.width;x++){
-        let v = gray[y*tmp.width + x]/255;
+        const i = y*tmp.width + x;
+        let v = gray[i]/255;
         if (invert) v = 1 - v;
-        if (edges) v = Math.min(1, v + edges[y*tmp.width + x] / 255 * edgeBoost);
+        if (edges) v = Math.min(1, v + edges[i] / 255 * edgeBoost);
         v = Math.min(1, Math.max(0, v));
         const ch = asciiChars[Math.floor((1 - v) * (asciiChars.length - 1))];
         const px = (x + 0.5) * cellW;
         const py = (y + 0.5) * cellH;
+        if (color) {
+          const pi = (y*tmp.width + x)*4;
+          const r = d[pi], g = d[pi+1], b = d[pi+2];
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+        } else {
+          const grey = Math.floor(v*255);
+          ctx.fillStyle = `rgb(${grey},${grey},${grey})`;
+        }
         ctx.fillText(ch, px - fontSize/2, py);
       }
     }
   }
+
+  previewMode.textContent = mode + (color ? ' (color)' : '');
 }
 
-// Snapshot
+// snapshot
 controls.snap.addEventListener('click', ()=>{
   const dataUrl = canvas.toDataURL('image/png');
   const a = document.createElement('a');
@@ -325,21 +449,22 @@ controls.snap.addEventListener('click', ()=>{
   a.click();
 });
 
-// Recording using MediaRecorder of canvas stream
-controls.record.addEventListener('click', async ()=>{
-  if (!stream && !canvas) { alert('Start the camera first'); return; }
+// recording
+controls.record.addEventListener('click', ()=>{
   if (!recording){
-    recordedChunks = [];
-    const cstream = canvas.captureStream(30); // 30fps
+    const cstream = canvas.captureStream(30);
     recorder = new MediaRecorder(cstream, { mimeType: 'video/webm;codecs=vp9' });
-    recorder.ondataavailable = e => { if (e.data.size) recordedChunks.push(e.data); };
+    chunks = [];
+    recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
     recorder.onstop = () => {
-      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      const blob = new Blob(chunks, { type: 'video/webm' });
       const url = URL.createObjectURL(blob);
-      controls.download.disabled = false;
       controls.download.href = url;
+      controls.download.style.pointerEvents = 'auto';
+      controls.download.style.opacity = '1';
+      controls.download.textContent = 'Download Recording';
       controls.download.download = 'particlecam_recording.webm';
-      logStatus('recording ready to download');
+      logStatus('recording ready');
     };
     recorder.start();
     recording = true;
@@ -353,41 +478,125 @@ controls.record.addEventListener('click', async ()=>{
   }
 });
 
-// Download button
-controls.download.addEventListener('click', (e)=>{
-  if (controls.download.disabled) e.preventDefault();
+// converter handling
+controls.fileIn.addEventListener('change', handleFile);
+controls.autoPlay.addEventListener('change', ()=>{ if (controls.autoPlay.checked) playConverter(); else pauseConverter(); });
+
+async function handleFile(ev){
+  const f = ev.target.files[0];
+  if (!f) return;
+  controls.fileInfo.textContent = `Loaded: ${f.name} (${Math.round(f.size/1024)} KB)`;
+  // cleanup existing
+  if (sourceEl && sourceEl !== videoEl) {
+    try { sourceEl.pause && sourceEl.pause(); sourceEl.src && (sourceEl.src = ''); } catch {}
+  }
+  // detect type
+  const type = f.type;
+  const url = URL.createObjectURL(f);
+  if (type.startsWith('image/')){
+    // image (may be animated GIF)
+    const img = document.createElement('img');
+    img.crossOrigin = 'anonymous';
+    img.src = url;
+    img.onload = async ()=>{
+      sourceEl = img;
+      await setupCanvasForSource();
+      // for animated gifs, the img will animate automatically; we just draw it repeatedly
+      if (controls.autoPlay.checked){
+        playConverter();
+      }
+    };
+    img.onerror = ()=>{ alert('Failed to load image'); };
+  } else if (type.startsWith('video/')){
+    const vid = document.createElement('video');
+    vid.src = url; vid.autoplay = controls.autoPlay.checked; vid.loop = converterLoop; vid.muted = true; vid.playsInline = true;
+    vid.onloadedmetadata = async ()=>{
+      sourceEl = vid;
+      await setupCanvasForSource();
+      if (controls.autoPlay.checked) playConverter();
+    };
+    vid.onerror = ()=>{ alert('Failed to load video'); };
+  } else {
+    alert('Unsupported file type.');
+  }
+  // switch to converter tab automatically
+  selectTab('converter');
+}
+
+// converter play/pause
+function playConverter(){
+  if (!sourceEl) return;
+  if (sourceEl.tagName === 'VIDEO') sourceEl.play();
+  converterPlaying = true;
+  convControls.style.display = 'flex';
+  convControls.alignItems = 'center';
+  logStatus('converter playing');
+}
+function pauseConverter(){
+  if (!sourceEl) return;
+  if (sourceEl.tagName === 'VIDEO') sourceEl.pause();
+  converterPlaying = false;
+  logStatus('converter paused');
+}
+controls.convPlay && controls.convPlay.addEventListener('click', ()=>{
+  if (!sourceEl) return;
+  if (converterPlaying) pauseConverter(); else playConverter();
+});
+controls.convLoop && controls.convLoop.addEventListener('click', ()=>{
+  converterLoop = !converterLoop;
+  if (sourceEl && sourceEl.tagName==='VIDEO') sourceEl.loop = converterLoop;
+  controls.convLoop.textContent = converterLoop ? 'Loop: On' : 'Loop: Off';
 });
 
-// Start / Stop camera UI
-startBtn.addEventListener('click', startCamera);
+// UI: start/stop/flip
+startBtn.addEventListener('click', async ()=>{
+  await updateDeviceList();
+  const sel = deviceSelect.value || '';
+  await startCamera(sel);
+});
 stopBtn.addEventListener('click', stopCamera);
+flipBtn.addEventListener('click', flipCamera);
+deviceSelect.addEventListener('change', async ()=>{
+  const id = deviceSelect.value || '';
+  await startCamera(id);
+});
 
-// Observers for controls refresh
-const inputs = ['zoom','density','dot','contrast','invert','smooth','noise','edge','mode'];
-inputs.forEach(id=>{
-  document.getElementById(id).addEventListener('input', ()=>{
-    if (ctx) ctx.imageSmoothingEnabled = !!controls.smooth.checked;
+// tabs
+tabCamera.addEventListener('click', ()=>selectTab('camera'));
+tabConverter.addEventListener('click', ()=>selectTab('converter'));
+function selectTab(name){
+  if (name === 'camera'){
+    tabCamera.classList.add('active');
+    tabConverter.classList.remove('active');
+    convControls.style.display = 'none';
+    // source remains as-is; status label
+    logStatus(stream ? 'camera running' : 'idle');
+  } else {
+    tabConverter.classList.add('active');
+    tabCamera.classList.remove('active');
+    convControls.style.display = sourceEl ? 'flex' : 'none';
+    logStatus('converter ready');
+  }
+}
+
+// controls change -> adjust smoothing on canvas
+['zoom','density','dot','contrast','invert','smooth','noise','edge','mode','colorMode'].forEach(id=>{
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', ()=>{
+    ctx.imageSmoothingEnabled = !!controls.smooth.checked;
+    // recalc canvas for source size if zoom changes
+    if (sourceEl) setupCanvasForSource();
   });
 });
 
-// small OBS guide modal-ish (simple alert)
-controls.obsGuide.addEventListener('click', ()=>{
-  alert(
-`Quick OBS steps:
-1) Open OBS. Add a Source -> Window Capture and pick your browser window showing this page (or use Browser source pointing to this page).
-2) Resize the source to fit the canvas.
-3) In OBS, enable "Start Virtual Camera" (Controls).
-4) In Zoom/Discord, choose "OBS Virtual Camera" as your webcam.
-Note: On some systems you'll need OBS Virtual Camera plugin or built-in feature depending on OBS version.`
-);
-});
+// initial device list attempt
+updateDeviceList().catch(()=>{});
 
-// Accessibility: try to stop recording/download cleanup on page unload
+// ensure we stop camera on unload
 window.addEventListener('beforeunload', ()=>{ if (stream) stream.getTracks().forEach(t=>t.stop()); });
 
-// Initial status
 logStatus('idle');
-
 </script>
 </body>
 </html>
