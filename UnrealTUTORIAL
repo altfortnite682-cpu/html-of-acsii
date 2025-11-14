@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>How to Host an Unreal Engine Game Online — Quick Guide</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#0f1724;color:#e6eef8}
+    header{background:linear-gradient(90deg,#0b1220,#0b1a2a);padding:28px 24px;border-bottom:1px solid rgba(255,255,255,.04)}
+    .wrap{max-width:980px;margin:28px auto;padding:20px;background:#071022;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.6)}
+    h1{margin:0 0 8px;font-size:22px}
+    p.lead{margin:0 0 18px;color:#bcd7ff}
+    section{margin:18px 0;padding:12px;border-radius:8px;background:linear-gradient(180deg, rgba(255,255,255,.01), transparent)}
+    code{background:#071a2c;padding:.15em .4em;border-radius:6px;color:#aaffff}
+    pre{background:#001020;padding:12px;border-radius:8px;overflow:auto;color:#d9f6ff}
+    ul{margin:8px 0 0 18px}
+    .note{font-size:13px;color:#9fb7d6}
+    footer{font-size:13px;color:#91b0d6;margin-top:14px}
+    .pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#0b2236;color:#cfe7ff;margin-right:8px;font-size:13px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap" style="background:transparent;box-shadow:none;padding:0">
+      <h1>How to Host an Unreal Engine Game Online — Quick Guide</h1>
+      <p class="lead">A compact, practical checklist for getting a playable Unreal multiplayer game online: listen server, dedicated server, cloud host, matchmaking, NAT, and packaging notes.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section>
+      <strong class="pill">Step 1</strong>
+      <h2>Decide your server model</h2>
+      <ul>
+        <li><strong>Listen server</strong> — one player hosts; easiest for small tests and P2P-style games.</li>
+        <li><strong>Dedicated server</strong> — separate program runs on a server machine; required for stable multiplayer, authoritative server, and most live games.</li>
+        <li><strong>Peer-to-peer with relay/NAT punchthrough</strong> — use if you want players to connect without port forwarding but don't want a true dedicated server (needs relay service).</li>
+      </ul>
+    </section>
+
+    <section>
+      <strong class="pill">Step 2</strong>
+      <h2>Make sure your game supports networking</h2>
+      <p class="note">Unreal is network-ready, but you must design gameplay with replication and authority in mind.</p>
+      <ul>
+        <li>Use replicated variables and <code>ReplicateMovement</code> where appropriate.</li>
+        <li>Perform server authoritative actions (spawn damage, winning conditions) on the server.</li>
+        <li>Test with multiple clients locally using the PIE "New Editor Window (PIE)" multiple clients option or packaged builds.</li>
+      </ul>
+    </section>
+
+    <section>
+      <strong class="pill">Step 3</strong>
+      <h2>Build a dedicated server (recommended)</h2>
+      <ol>
+        <li>In Project Settings &gt; Packaging: enable building a server target (Linux servers are common for production).</li>
+        <li>Package a server build:
+          <pre>// Example packaging targets (conceptual)
+ue4editor.exe MyProject.uproject -run=Cook -Target=MyGame
+Run UnrealBuildTool to create a Server target (e.g., MyGameServer)</pre>
+        </li>
+        <li>On Linux you typically produce a headless executable; on Windows a <code>-server</code> command-line run is possible.</li>
+      </ol>
+      <p class="note">Production servers are usually Linux (cost, stability, tooling); during dev you can run a Windows server locally for quick tests.</p>
+    </section>
+
+    <section>
+      <strong class="pill">Step 4</strong>
+      <h2>Typical server launch commands</h2>
+      <p class="note">Examples — adjust paths and map names for your project.</p>
+
+      <h3>Linux dedicated server (example)</h3>
+      <pre>cd /home/ubuntu/MyGame/Binaries/Linux
+./MyGameServer-Linux-Shipping MyMap?listen -log -Port=7777</pre>
+
+      <h3>Windows dedicated server (example)</h3>
+      <pre>MyGameServer.exe MyMap?listen -server -log -Port=7777</pre>
+
+      <p class="note">Common default port for Unreal is <code>7777</code> UDP (game traffic). You may need additional ports for query, web, or admin interfaces.</p>
+    </section>
+
+    <section>
+      <strong class="pill">Step 5</strong>
+      <h2>Networking basics: ports & NAT</h2>
+      <ul>
+        <li><strong>Open port(s)</strong> on the server's firewall and cloud security group (e.g., UDP 7777).</li>
+        <li>If your host is a player machine (listen server) you must set up <strong>port forwarding</strong> on their router for the chosen port(s).</li>
+        <li><strong>NAT traversal</strong> (STUN/TURN or relay) is required to avoid forcing players to forward ports. Use a matchmaking/relay provider if you want seamless connections.</li>
+      </ul>
+    </section>
+
+    <section>
+      <strong class="pill">Step 6</strong>
+      <h2>Matchmaking, lobbies and presence</h2>
+      <p class="note">For friendly UX you'll want matchmaking + presence so players can find games without IPs.</p>
+      <ul>
+        <li><strong>Epic Online Services (EOS)</strong> — free SDK for auth, lobbies, matchmaking, and presence (works cross-platform).</li>
+        <li><strong>Steamworks</strong> — if you publish on Steam, use Steam matchmaking + lobby system (requires Steam integration).</li>
+        <li>Other backends: PlayFab, GameSparks, AWS GameLift — provide matchmaking and server fleets.</li>
+      </ul>
+    </section>
+
+    <section>
+      <strong class="pill">Step 7</strong>
+      <h2>Host on cloud or game server provider</h2>
+      <p class="note">Options — each has tradeoffs (cost, control, complexity):</p>
+      <ul>
+        <li><strong>Self-managed VPS/VM (AWS EC2, Google Cloud, Azure)</strong>
+          <ul><li>Spin up a VM, open ports, upload the dedicated server, run it. Scale with autoscaling and a load balancer if you run many servers.</li></ul>
+        </li>
+        <li><strong>Managed game server providers (PlayFab, GameLift, Multiplay, Nodecraft, etc.)</strong>
+          <ul><li>Offer easier scaling, matchmaking hooks, and lifecycle management for game servers.</li></ul>
+        </li>
+        <li><strong>Container approach</strong> — run dedicated servers in Docker/Kubernetes for scale/automation (CI/CD, autoscaling).</li>
+      </ul>
+    </section>
+
+    <section>
+      <strong class="pill">Step 8</strong>
+      <h2>Security & reliability checklist</h2>
+      <ul>
+        <li>Validate all client inputs on the server (never trust the client).</li>
+        <li>Use encryption for sensitive data (auth tokens, player data).</li>
+        <li>Monitor logs and metrics; plan for restarts/crash recovery.</li>
+        <li>Automate deployments with CI (GitHub Actions, GitLab CI) to avoid manual errors.</li>
+      </ul>
+    </section>
+
+    <section>
+      <strong class="pill">Step 9</strong>
+      <h2>Testing your multiplayer setup</h2>
+      <ol>
+        <li>Local multi-client testing (PIE) &amp; packaged client + local server.</li>
+        <li>Remote testing: run a server on a cloud VM and connect a client from your home machine / friend machine.</li>
+        <li>Simulate latency and packet loss (tc/netem on Linux or network simulator tools) to see how your game behaves.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Quick cheatsheet / commands</h2>
+      <pre>// Build &amp; run dedicated server (concept)
+// Linux: build shipping server binary, upload to VM, then:
+./MyGameServer-Linux-Shipping MyMap?listen -log -Port=7777
+
+// Start client and connect:
+MyGameClient.exe 127.0.0.1:7777
+MyGameClient.exe <public-ip>:7777</pre>
+      <p class="note">If clients fail to connect, check server firewall, cloud security groups, and router port forwarding. Also check if the server listens on the right interface (0.0.0.0).</p>
+    </section>
+
+    <footer>
+      <strong>Start small:</strong> try a local dedicated server first, then move to a cheap cloud VM to test remote connections, then add matchmaking/relay when you want scale and seamless player experience.
+    </footer>
+  </main>
+</body>
+</html>
